@@ -1,0 +1,40 @@
+.content {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-evenly;
+    margin: 10px;
+
+    opacity: 0;
+    transition: 0.5s;
+
+    .agency-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        height: 100%;
+        width: 100%;
+
+        h2 {
+            font-size: 25px;
+            margin: 30px;
+        }
+
+        .agency-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill,minmax(160px, 1fr));
+            height: 500px;
+            width: 800px;
+            li {
+                text-align: center;
+                margin: 5px 0;
+                a {
+                    text-decoration: none;
+                }
+            }
+        }
+    }
+}

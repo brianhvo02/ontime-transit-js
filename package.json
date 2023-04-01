@@ -7,7 +7,7 @@
     "defaults"
   ],
   "scripts": {
-    "watch": "webpack --watch --mode=development",
+    "watch": "concurrently --names \"WEBPACK,SERVE\" \"webpack --watch --mode=development\" \"serve\"",
     "build": "webpack --mode=production"
   },
   "keywords": [],
@@ -23,14 +23,17 @@
     "core-js": "^3.29.1",
     "css-loader": "^6.7.3",
     "d3": "^7.8.3",
-    "fontawesome-free": "^1.0.4",
+    "dexie": "^3.2.3",
     "mini-css-extract-plugin": "^2.7.5",
     "ol": "^7.3.0",
     "regenerator-runtime": "^0.13.11",
     "sass": "^1.60.0",
     "sass-loader": "^13.2.2",
     "webpack": "^5.77.0",
-    "webpack-cli": "^5.0.1",
-    "webpack-plugin-serve": "^1.6.0"
+    "webpack-cli": "^5.0.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.1",
+    "serve": "^14.2.0"
   }
 }

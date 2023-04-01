@@ -1,0 +1,17 @@
+@use '../variables';
+
+html, body {
+    background-color: variables.$background-color;
+    color: variables.$primary-text;
+    font-family: "Roboto", sans-serif;
+    height: 100%;
+}
+
+.main-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    
+    position: relative;
+    z-index: 1;
+}

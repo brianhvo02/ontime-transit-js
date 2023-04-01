@@ -1,6 +1,11 @@
 @use 'styles/reset';
-$fa-font-path: "~@fortawesome/fontawesome-free/webfonts";
-@use "~@fortawesome/fontawesome-free/scss/fontawesome";
-@use "~@fortawesome/fontawesome-free/scss/regular";
-@use "~@fortawesome/fontawesome-free/scss/solid";
 @use "../node_modules/ol/ol.css";
+@use 'styles/containers/main';
+@use 'styles/containers/map';
+@use 'styles/containers/loading';
+@use 'styles/containers/error';
+@use 'styles/containers/welcome';
+@use 'styles/main/header';
+@use 'styles/main/navbar';
+@use 'styles/main/content';
+@use 'styles/main/footer';

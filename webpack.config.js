@@ -1,45 +1,47 @@
 const path = require('path');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
-const { WebpackPluginServe: Serve } = require('webpack-plugin-serve');
 
 const config = {
     entry: [
-        'webpack-plugin-serve/client',
         path.resolve(__dirname, 'src', 'index.js'),
         path.resolve(__dirname, 'src', 'index.scss')
     ],
     output: {
-        path: path.join(__dirname, 'dist'), // bundled file in dist/
-        filename: '[name].js'
+        path: path.join(__dirname, 'dist'),
+        filename: '[name].js',
+        clean: true
     },
     module: {
         rules: [
             {
-                test: /\.js$/, // applies to js files
-                use: ['babel-loader'], // transpiles your js
-                exclude: /node_modules/, // don't transpile node modules
+                test: /\.js$/,
+                use: ['babel-loader'],
+                exclude: /node_modules/,
             },
             {
-                test: /\.s?[ac]ss$/, // applies to css/scss/sass files
+                test: /\.s?[ac]ss$/,
                 use: [
-                    MiniCssExtractPlugin.loader, // create bundled css file
+                    MiniCssExtractPlugin.loader,
                     {
-                        loader: 'css-loader', // resolves @import statements
-                        options: { url: false } // don't resolve url() statements
+                        loader: 'css-loader',
+                        options: { url: false }
                     },
-                    'sass-loader', // compiles sass to css
+                    'sass-loader',
                 ]
+            },
+            {
+                test: /\.(tff|woff2|)$/,
+                type: 'asset/inline'
             }
+            
         ]
     },
     plugins: [
-        new MiniCssExtractPlugin(),
-        new Serve({
-            liveReload: true,
-            port: 3000,
-            host: '127.0.0.1'
-        })
-    ]
+        new MiniCssExtractPlugin()
+    ],
+    experiments: {
+        topLevelAwait: true
+    }
 };
 
 module.exports = (env, argv) => {

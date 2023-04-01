@@ -1,0 +1,25 @@
+@use '../variables';
+
+.navbar {
+    height: 100%;
+    width: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    background-color: variables.$background-color;
+    overflow-x: hidden;
+    transition: 0.5s;
+    padding-top: 60px;
+
+    ul {
+        display: flex;
+        flex-direction: column;
+        justify-content: space-evenly;
+        height: 100%;
+        flex-wrap: nowrap;
+
+        li {
+            white-space: nowrap;
+        }
+    }
+}

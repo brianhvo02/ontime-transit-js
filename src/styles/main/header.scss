@@ -1,0 +1,44 @@
+header {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 20px;
+    margin-right: 0px;
+
+    h1 {
+        font-size: 50px;
+        text-align: right;
+    }
+    
+    h2 {
+        font-size: 25px;
+        text-align: left;
+    }
+    
+    .center {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        opacity: 0;
+        transition: 0.5s;
+    }
+    
+    .fa-train-subway {
+        font-size: 50px;
+        margin: 20px;
+    }
+
+    .side-buttons {
+        font-size: 25px;
+        margin: 20px;
+        cursor: pointer;
+
+        opacity: 0;
+        transition: 0.5s;
+    }
+
+    .fa-bars {
+        transition: 0.5s;
+    }
+}

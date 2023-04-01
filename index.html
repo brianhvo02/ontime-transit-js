@@ -5,13 +5,68 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+        <script defer src="./assets/fontawesome/js/regular.min.js"></script>
+        <script defer src="./assets/fontawesome/js/solid.min.js"></script>
+        <script defer src="./assets/fontawesome/js/fontawesome.min.js"></script>
         <link rel="stylesheet" href="./dist/main.css" />
-        <script src="./dist/main.js" defer></script>
+        <script defer src="./dist/main.js"></script>
         <title>OnTime Transit</title>
     </head>
 
     <body>
-        
+        <div id="map"></div>
+        <div class="main-container">
+            <header>
+                <nav class="navbar">
+                    <ul>
+                        <li>Agency List</li>
+                        <li>Test 2</li>
+                        <li>Test 3</li>
+                        <li>Test 4</li>
+                        <li>Test 5</li>
+                    </ul>
+                </nav>
+                <i class="fas fa-bars side-buttons"></i>
+                <div class="center">
+                    <h1>OnTime Transit</h1>
+                    <i class="fas fa-train-subway"></i>
+                    <h2>Bay Area Transit Data Visualizer</h2>
+                </div>
+                <i class="fas fa-gear side-buttons"></i>
+            </header>
+            <div class="content">
+                <div class="agency-container">
+                    <h2>Agencies</h2>
+                    <ul class="agency-list"></ul>
+                </div>
+            </div>
+            <footer>
+                <figure>
+                    <figcaption>Powered by:</figcaption>
+                    <img src="./assets/511SFBay_color_reversed_web.png" alt="511 SF Bay" class="logo-511">
+                </figure>
+                <p class="feed-progress">Feed downloaded.</p>
+            </footer>
+        </div>
+        <div class="loading-container">
+            <div class="loading">
+                <h1>Loading</h1>
+                <i class="fas fa-train-subway"></i>
+            </div>
+        </div>
+        <div class="error-container">
+            <div class="error">
+                <h1>Oh, no! Something went wrong.</h1>
+                <p>Sorry about that. Someone will be coming to fix this soon. 😭</p>
+            </div>
+        </div>
+        <div class="welcome-container">
+            <div class="welcome">
+                <h1>Welcome to OnTime Transit!</h1>
+                <p>Thanks for using OnTime Transit, a data visualization project using GTFS feeds from 511 SF Bay.</p>
+                <button class="continue">Continue</button>
+            </div>
+        </div>
     </body>
 
 </html>

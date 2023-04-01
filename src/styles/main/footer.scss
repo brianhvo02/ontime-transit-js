@@ -1,0 +1,16 @@
+footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: 0.5s;
+
+    .logo-511 {
+        width: 250px;
+        height: 200px;
+    }
+
+    .feed-progress {
+        
+    }
+}
