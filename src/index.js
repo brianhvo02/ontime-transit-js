@@ -6,18 +6,12 @@ import TransitWorker from './scripts/transitWorker';
 import { select } from 'd3';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
+import { getCenter } from 'ol/extent';
+import Stroke from 'ol/style/Stroke';
 
 (async () => {
     try {
-        const mapInstance = new TransitMap();
-
-        mapInstance.map.on('click', e => {
-            const features = mapInstance.map.getFeaturesAtPixel(e.pixel);
-            if (features.length > 0) {
-                const str = features.map(feature => feature.get('STOP_NAME') ? `${feature.get('AGENCY_ID')}: ${feature.get('STOP_NAME')}` : `${feature.get('AGENCY_ID')}: ${feature.get('SHORT_NAME')} (${feature.get('LONG_NAME')})`).join('\n');
-                alert(str);
-            }
-        });
+        
 
         const dateLastChecked = parseInt(localStorage.getItem('dateLastChecked'));
         const checkUpdate = dateLastChecked ? (new Date(dateLastChecked + 86400000) < new Date()) : true;
@@ -27,48 +21,21 @@ import VectorSource from 'ol/source/Vector';
 
         const worker = new TransitWorker(checkUpdate, dbVersion);
 
-        worker.addEventListener('dbLoaded', async () => {
-            const agencies = await worker.getAll('agency');
+        const mapInstance = new TransitMap(worker);
 
-            agencies.forEach((agency, i) => {
-                select(agencyList.nodes()[Math.floor(i / (agencies.length / 2))]).append('li')
-                    // .append('a')
-                    // .attr('href', agency['agency_url'])
-                    // .attr('target', '_blank')
-                    .text(agency['agency_name'])
-                    .on('mouseenter', () => mapInstance.layers[`agency_${agency['agency_id']}`].setVisible(true))
-                    .on('mouseleave', () => mapInstance.layers[`agency_${agency['agency_id']}`].setVisible(false));
-                    // .on('click', () => )
-            });
-
-            console.log('Starting draw calculations.');
-            const agencyFeatures = Object.fromEntries(agencies.map(agency => [`agency_${agency['agency_id']}`, new Array()]));
-            const startTime = new Date();
-            const routes = await worker.getAll('routes');
-            
-            for (let i = 0; i < routes.length; i++) {
-                const route = routes[i];
-                try {
-                    const trip = await worker.getWhereFirst('trips', {
-                        agency_id: route['agency_id'], 
-                        route_id: route['route_id']
-                    });
-                    const points = await worker.getWhere('shapes', '[shape_id+agency_id]', [trip['shape_id'], trip['agency_id']]);
-                    const feature = TransitMap.featureWrap(TransitMap.lineStringWrap(points.sort((a, b) => a['shape_pt_sequence'] - b['shape_pt_sequence']).map(seq => [seq['shape_pt_lon'], seq['shape_pt_lat']])));
-                    feature.set('COLOR', `#${route['route_color']}`);
-                    feature.set('AGENCY_ID', route['agency_id']);
-                    feature.set('SHORT_NAME', route['route_short_name']);
-                    feature.set('LONG_NAME', route['route_long_name']);
-                    agencyFeatures[`agency_${route['agency_id']}`].push(feature);
-                } catch(e) {
-                    console.error(`Route threw an error!
-Agency: ${route['agency_id']}
-Route: ${route['route_id']}`, e.toString());
-                }
+        mapInstance.map.on('click', e => {
+            const features = mapInstance.map.getFeaturesAtPixel(e.pixel);
+            if (features.length > 0) {
+                const str = features.map(feature => feature.get('STOP_NAME') ? `${feature.get('AGENCY_ID')}: ${feature.get('STOP_NAME')}` : `${feature.get('AGENCY_ID')}: ${feature.get('SHORT_NAME')} (${feature.get('LONG_NAME')})`).join('\n');
+                alert(str);
             }
+        });
 
-            mapInstance.createAgencyLayers(agencies)
-            Object.entries(agencyFeatures).forEach(mapInstance.addFeatures.bind(mapInstance));
+        worker.addEventListener('dbLoaded', async () => {
+            
+            document.querySelector('.fa-train-subway').addEventListener('click', mapInstance.resetMap.bind(mapInstance));
+            
+            
 
             // console.log(mapInstance.layers.forEach(layer => layer.setVisible(false)));
 
@@ -88,8 +55,8 @@ Route: ${route['route_id']}`, e.toString());
             
             // console.log('Drawing features.');
             // mapInstance.drawFeatures(features.concat(stopFeatures));
-            const timeElapsed = new Date(new Date() - startTime);
-            console.log(`Finished in ${timeElapsed.getSeconds()} sec, ${timeElapsed.getMilliseconds()} ms`);
+            await mapInstance.drawMap();
+            await mapInstance.createAgencyElements();
 
             // worker.getWhere('routes', 'agency_id', 'BA').then(routes => console.log(routes));
             // worker.getWhereFirst('routes', 'agency_id', 'BA').then(route => console.log(route));
@@ -98,6 +65,11 @@ Route: ${route['route_id']}`, e.toString());
                 localStorage.setItem('dateLastChecked', dateLastChecked);
                 location.reload();
             });
+
+            // mapInstance.map.getView().setCenter(getCenter(agencyFeatures['agency_BA'][0].getGeometry().getExtent()))
+            // mapInstance.map.getView().setZoom(14)
+            // console.log()
+            // console.log(mapInstance.map.getSize())
 
             if (dbVersion > 0) {
                 fadeInMain();

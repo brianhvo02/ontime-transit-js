@@ -21,7 +21,7 @@ export default class TransitWorker extends EventTarget {
         if (e.data.message.includes('get')) {
             const [ get, command, table] = e.data.message.split('_');
             this.data[table] = e.data.payload;
-            this.dispatchEvent(new Event([get, command].join('_')));
+            this.dispatchEvent(new Event([get,  command].join('_')));
         } else {
             switch (e.data.message) {
                 case 'dbLoaded':
@@ -76,6 +76,17 @@ export default class TransitWorker extends EventTarget {
             }
             this.addEventListener('get_whereFirst', handler);
             this.send('get_whereFirst', { table, key, value });
+        });
+    }
+
+    async getWhereCount(table, key, value) {
+        return new Promise(resolve => {
+            const handler = () => {
+                resolve(this.data[table]);
+                this.removeEventListener('get_whereCount', handler);
+            }
+            this.addEventListener('get_whereCount', handler);
+            this.send('get_whereCount', { table, key, value });
         });
     }
 }

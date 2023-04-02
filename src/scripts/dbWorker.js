@@ -1,3 +1,4 @@
+import Dexie from "dexie";
 import TransitAccess from "./transitAccess";
 
 /*
@@ -43,6 +44,13 @@ self.onmessage = async e => {
                         data = await transitAccess.table(table).where(key).equals(value).first();
                     } else {
                         data = await transitAccess.table(table).where(key).first();
+                    }
+                    break;
+                case 'whereCount':
+                    if (value) {
+                        data = await transitAccess.table(table).where(key).equals(value).count();
+                    } else {
+                        data = await transitAccess.table(table).where(key).count();
                     }
                     break;
                 default:
