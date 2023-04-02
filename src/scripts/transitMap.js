@@ -24,9 +24,7 @@ export default class TransitMap {
         })
 
         const tile = new TileLayer({
-            source: new OSM(),
-            minZoom: 9,
-            maxZoom: 12
+            source: new OSM()
         });
 
         tile.on('postrender', (evt) => {
@@ -59,7 +57,7 @@ export default class TransitMap {
                 vector
             ],
             view: new View({
-                center: [-122.2711639, 37.8043514],
+                center: [-122.2711639, 37.9743514],
                 zoom: 9.5,
             }),
             controls: []

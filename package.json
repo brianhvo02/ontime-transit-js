@@ -6,6 +6,9 @@
   "browserslist": [
     "defaults"
   ],
+  "repository": {
+    "url": "git+https://github.com/brianhvo02/ontime-transit.git"
+  },
   "scripts": {
     "watch": "concurrently --names \"WEBPACK,SERVE\" \"webpack --watch --mode=development\" \"serve\"",
     "build": "webpack --mode=production"

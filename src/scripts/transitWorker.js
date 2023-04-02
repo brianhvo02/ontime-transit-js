@@ -18,10 +18,10 @@ export default class TransitWorker extends EventTarget {
     }
 
     async manageMessage(e) {
-        if (e.data.message.includes('get_')) {
-            const tableName = e.data.message.slice(4);
-            this.data[tableName] = e.data.payload;
-            this.dispatchEvent(new Event(e.data.message));
+        if (e.data.message.includes('get')) {
+            const [ get, command, table] = e.data.message.split('_');
+            this.data[table] = e.data.payload;
+            this.dispatchEvent(new Event([get, command].join('_')));
         } else {
             switch (e.data.message) {
                 case 'dbLoaded':
@@ -46,14 +46,36 @@ export default class TransitWorker extends EventTarget {
         }
     }
 
-    async getTable(table) {
+    async getAll(table) {
         return new Promise(resolve => {
             const handler = () => {
                 resolve(this.data[table]);
-                this.removeEventListener(`get_${table}`, handler);
+                this.removeEventListener('get_all', handler);
             }
-            this.addEventListener(`get_${table}`, handler);
-            this.send(`get_${table}`);
-        })
+            this.addEventListener('get_all', handler);
+            this.send('get_all', { table });
+        });
+    }
+
+    async getWhere(table, key, value) {
+        return new Promise(resolve => {
+            const handler = () => {
+                resolve(this.data[table]);
+                this.removeEventListener('get_where', handler);
+            }
+            this.addEventListener('get_where', handler);
+            this.send('get_where', { table, key, value });
+        });
+    }
+
+    async getWhereFirst(table, key, value) {
+        return new Promise(resolve => {
+            const handler = () => {
+                resolve(this.data[table]);
+                this.removeEventListener('get_whereFirst', handler);
+            }
+            this.addEventListener('get_whereFirst', handler);
+            this.send('get_whereFirst', { table, key, value });
+        });
     }
 }

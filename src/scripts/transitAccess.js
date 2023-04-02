@@ -6,27 +6,27 @@ export default class TransitAccess extends Dexie {
     queue = Object.fromEntries(TransitAccess.TABLES.map(table => [table, new Array()]));
 
     static PROCESSING_COUNT = 200000;
-    // static SUPPORTED_AGENCIES = ['BA', 'SC', 'AC', 'SF', 'SM', 'CT', 'FS', 'GG', 'PE', 'SA', 'SB', 'SI', 'SO'];
+    // static SUPPORTED_AGENCIES = ['BA', 'SC'];
     static TABLE_MAP = {
         'agency': ['agency_id'],
         'mtc_feed_versions': ['agency_id'],
         'routes': ['route_id'],
         // 'route_attributes': ['route_id'],
         'stops': ['stop_id'],
-        'trips': ['trip_id'],
-        'areas': ['area_id'],
-        'shapes': ['shape_id', 'shape_pt_sequence'],
+        'trips': ['trip_id', 'route_id', '[agency_id+route_id]'],
+        // 'areas': ['area_id'],
+        'shapes': ['[shape_id+shape_pt_sequence]', '[shape_id+agency_id]'],
         'levels': ['level_id'],
         'calendar': ['service_id'],
-        'calendar_dates': ['service_id', 'date'],
+        'calendar_dates': ['[service_id+date]'],
         'calendar_attributes': ['service_id'],
-        'directions': ['route_id', 'direction_id'],
-        'fare_products': ['fare_product_id', 'fare_media_id'],
-        'pathways': ['pathway_id'],
-        'rider_categories': ['rider_category_id'],
-        'stop_areas': ['area_id', 'stop_id'],
+        // 'directions': ['route_id', 'direction_id'],
+        // 'fare_products': ['[fare_product_id+fare_media_id]'],
+        // 'pathways': ['pathway_id'],
+        // 'rider_categories': ['rider_category_id'],
+        // 'stop_areas': [['area_id', 'stop_id']],
         // 'stop_times': ['trip_id', 'stop_sequence'],
-        'LastGenerated': ['Id'],
+        'LastGenerated': [],
     }
 
     static TABLES = Object.keys(this.TABLE_MAP);
@@ -95,9 +95,8 @@ export default class TransitAccess extends Dexie {
             }
         }
         
-        const schema = Object.fromEntries(TransitAccess.TABLES.map(table => [ table, ['id'].concat(TransitAccess.TABLE_MAP[table].includes('agency_id') ? [] : [ 'agency_id' ]).concat(TransitAccess.TABLE_MAP[table].length > 1 ? `[${TransitAccess.TABLE_MAP[table].join('+')}]` : TransitAccess.TABLE_MAP[table][0]).join(', ') ]));
+        const schema = Object.fromEntries(TransitAccess.TABLES.map(table => [ table, [ 'id' ].concat(TransitAccess.TABLE_MAP[table].includes('agency_id') ? [] : [ 'agency_id' ]).concat(TransitAccess.TABLE_MAP[table]).join(', ') ]));
         this.version(this.dbVersion).stores(schema);
-        
         await this.open();
 
         if (this.checkUpdate) {
@@ -113,9 +112,17 @@ export default class TransitAccess extends Dexie {
                 const agency = data[agency_id];
                 for (let table in agency) {
                     if (TransitAccess.TABLES.includes(table)) {
-                        const records = agency[table].map(record => {
+                        const records = agency[table].map((record, i) => {
+                            const pk = TransitAccess.TABLE_MAP[table][0];
+                            let id;
+                            if (pk.includes('+')) {
+                                const [ key1, key2 ] = pk.slice(1, pk.length - 1).split('+');
+                                id = [ agency_id, record[key1], record[key2] ].join('_');
+                            } else {
+                                id = [ agency_id, record[pk] ].join('_');
+                            }
                             return { 
-                                id: [ agency_id ].concat(TransitAccess.TABLE_MAP[table].map(id => record[id])).join('_'),
+                                id,
                                 agency_id,
                                 ...record 
                             }

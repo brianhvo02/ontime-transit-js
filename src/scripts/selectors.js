@@ -25,7 +25,7 @@ export const reloadButton = select('.reload-button');
 export const settings = select('.settings > ul');
 
 // Content
-export const agencyList = select('.agency-list');
+export const agencyList = selectAll('.agency-list');
 
 // Footer
 export const feedProgress = select('.feed-progress');

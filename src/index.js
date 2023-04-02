@@ -3,6 +3,7 @@ import { loading, error, welcome, agencyList, feedProgress, locationToggle, relo
 import { fadeInMain, fadeInWelcome, getLocation } from './scripts/domManip';
 import Style from 'ol/style/Style';
 import TransitWorker from './scripts/transitWorker';
+import { select } from 'd3';
 
 (async () => {
     try {
@@ -31,43 +32,46 @@ import TransitWorker from './scripts/transitWorker';
                 fadeInWelcome();
             }
 
-            worker.getTable('agency').then(agencies => {
-                agencies.forEach(agency => {
-                    agencyList.append('li')
-                        .append('a')
-                        .attr('href', agency['agency_url'])
-                        .attr('target', '_blank')
-                        .text(agency['agency_name']);
-                });
+            const agencies = await worker.getAll('agency');
+            agencies.forEach((agency, i) => {
+                select(agencyList.nodes()[Math.floor(i / (agencies.length / 2))]).append('li')
+                    .append('a')
+                    .attr('href', agency['agency_url'])
+                    .attr('target', '_blank')
+                    .text(agency['agency_name']);
             });
-            
             // const agencies = await worker.getTable('agency');
-            worker.getTable('routes').then(async routes => {
-                const features = [];
-                const trips = await worker.getTable('trips');
-                const shapes = await worker.getTable('shapes');
-                console.log('Loaded all routes, trips, and shapes.');
-                routes.forEach(route => {
-                    try {
-                        const trip = trips.find(trip => trip['agency_id'] === route['agency_id'] && trip['route_id'] === route['route_id']);
-                        const points = shapes.filter(shape => shape['agency_id'] === trip['agency_id'] && shape['shape_id'] === trip['shape_id']).sort((a, b) => a['shape_pt_sequence'] - b['shape_pt_sequence']).map(seq => [seq['shape_pt_lon'], seq['shape_pt_lat']]);
-                        const feature = TransitMap.featureWrap(TransitMap.lineStringWrap(points), new Style({ 'stroke-color': `#${route['route_color']}` }));
-                        feature.set('COLOR', `#${route['route_color']}`);
-                        feature.set('AGENCY_ID', route['agency_id']);
-                        feature.set('SHORT_NAME', route['route_short_name']);
-                        feature.set('LONG_NAME', route['route_long_name']);
-                        features.push(feature);
-                    } catch(e) {
-                        console.error(`Route threw an error!
+            console.log('Starting draw calculations.');
+            const startTime = new Date();
+            const routes = await worker.getAll('routes');
+            const features = [];
+            for (let i = 0; i < routes.length; i++) {
+                const route = routes[i];
+                try {
+                    const trip = await worker.getWhereFirst('trips', {
+                        agency_id: route['agency_id'], 
+                        route_id: route['route_id']
+                    });
+                    const points = await worker.getWhere('shapes', '[shape_id+agency_id]', [trip['shape_id'], trip['agency_id']]);
+                    const feature = TransitMap.featureWrap(TransitMap.lineStringWrap(points.sort((a, b) => a['shape_pt_sequence'] - b['shape_pt_sequence']).map(seq => [seq['shape_pt_lon'], seq['shape_pt_lat']])), new Style({ 'stroke-color': `#${route['route_color']}` }));
+                    feature.set('COLOR', `#${route['route_color']}`);
+                    feature.set('AGENCY_ID', route['agency_id']);
+                    feature.set('SHORT_NAME', route['route_short_name']);
+                    feature.set('LONG_NAME', route['route_long_name']);
+                    features.push(feature);
+                } catch(e) {
+                    console.error(`Route threw an error!
 Agency: ${route['agency_id']}
 Route: ${route['route_id']}`, e.toString());
-                    }
-                   
-                });
-                console.log('Drawing features.');
-                mapInstance.drawFeatures(features);
-            });
+                }
+            }
+            console.log('Drawing features.');
+            mapInstance.drawFeatures(features);
+            const timeElapsed = new Date(new Date() - startTime);
+            console.log(`Finished in ${timeElapsed.getSeconds()} sec, ${timeElapsed.getMilliseconds()} ms`);
 
+            // worker.getWhere('routes', 'agency_id', 'BA').then(routes => console.log(routes));
+            // worker.getWhereFirst('routes', 'agency_id', 'BA').then(route => console.log(route));
             reloadButton.on('click', () => {
                 const dateLastChecked = parseInt(localStorage.getItem('dateLastChecked')) - 86500000;
                 localStorage.setItem('dateLastChecked', dateLastChecked);
