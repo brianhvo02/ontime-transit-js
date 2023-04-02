@@ -13,6 +13,8 @@ With OnTime, users will be able to:
 - View charts and tables based on statistics generated from both static and realtime GTFS sources
 - Explore options with transit, such as directions or fares between stops (TENTATIVE)
 
+[Try it now!](https://brianhvo02.github.io/ontime-transit/)
+
 ## Wireframes
 
 ![wireframe](https://github.com/brianhvo02/ontime-transit/raw/main/wireframe.png)
