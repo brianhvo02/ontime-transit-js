@@ -15,7 +15,7 @@ header {
         text-align: left;
     }
     
-    .center {
+    .header-center {
         display: flex;
         align-items: center;
         justify-content: center;
@@ -23,7 +23,15 @@ header {
         opacity: 0;
         transition: 0.5s;
     }
-    
+
+    .header-left, .header-right {
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        justify-content: space-between;
+        width: 125px;
+    }
+
     .fa-train-subway {
         font-size: 50px;
         margin: 20px;
@@ -32,13 +40,17 @@ header {
     .side-buttons {
         font-size: 25px;
         margin: 20px;
-        cursor: pointer;
 
-        opacity: 0;
+        // opacity: 0;
         transition: 0.5s;
     }
 
     .fa-bars {
+        cursor: pointer;
         transition: 0.5s;
+    }
+
+    .fa-location-dot, .fa-map-location-dot, .fa-gear {
+        cursor: pointer;
     }
 }

@@ -5,7 +5,6 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-        <script defer src="./assets/fontawesome/js/regular.min.js"></script>
         <script defer src="./assets/fontawesome/js/solid.min.js"></script>
         <script defer src="./assets/fontawesome/js/fontawesome.min.js"></script>
         <link rel="stylesheet" href="./dist/main.css" />
@@ -26,13 +25,25 @@
                         <li>Test 5</li>
                     </ul>
                 </nav>
-                <i class="fas fa-bars side-buttons"></i>
-                <div class="center">
+                <div class="header-left side-buttons">
+                    <i class="fa-solid fa-bars"></i>
+                </div>
+                <div class="header-center">
                     <h1>OnTime Transit</h1>
-                    <i class="fas fa-train-subway"></i>
+                    <i class="fa-solid fa-train-subway"></i>
                     <h2>Bay Area Transit Data Visualizer</h2>
                 </div>
-                <i class="fas fa-gear side-buttons"></i>
+                <div class="header-right side-buttons">
+                    <i class="fa-solid fa-location-dot"></i>
+                    <i class="fa-solid fa-map-location-dot"></i>
+                    <div class="settings">
+                        <i class="fa-solid fa-gear"></i>
+                        <ul>
+                            <li><button class="reload-button">Reload</button></li>
+                        </ul>
+                    </div>
+                    
+                </div>
             </header>
             <div class="content">
                 <div class="agency-container">
@@ -41,10 +52,8 @@
                 </div>
             </div>
             <footer>
-                <figure>
-                    <figcaption>Powered by:</figcaption>
-                    <img src="./assets/511SFBay_color_reversed_web.png" alt="511 SF Bay" class="logo-511">
-                </figure>
+                <p>Powered by: </p>
+                <img src="./assets/511SFBay_color_reversed_web.png" alt="511 SF Bay" class="logo-511">
                 <p class="feed-progress">Feed downloaded.</p>
             </footer>
         </div>
