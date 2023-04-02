@@ -53,7 +53,6 @@ const handleBars = function() {
 }
 
 const handleGear = function() {
-    console.log(true)
     if (settings.style('opacity') == 1) {
         settings.style('opacity', 0);
     } else {
@@ -61,8 +60,8 @@ const handleGear = function() {
     }
 }
 
-continueButton.node().addEventListener('click', fadeInMain);
-mapToggle.node().addEventListener('click', fadeOutMainInMap);
-navbarToggle.node().addEventListener('click', handleBars);
-settingsToggle.node().addEventListener('click', handleGear);
-window.fadeOutMainInMap = fadeOutMainInMap;
+document.querySelector('.continue').addEventListener('click', fadeInMain);
+document.querySelector('.fa-map-location-dot').addEventListener('click', fadeOutMainInMap);
+document.querySelector('.fa-bars').addEventListener('click', handleBars);
+document.querySelector('.fa-gear').addEventListener('click', handleGear);
+// window.fadeOutMainInMap = fadeOutMainInMap;

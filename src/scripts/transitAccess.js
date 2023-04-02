@@ -71,7 +71,7 @@ export default class TransitAccess extends Dexie {
     async newInstance() {
         if (this.checkUpdate) {
             const agenciesData = await fetch('https://api.511.org/transit/gtfsoperators?api_key=7cf5660e-215b-489d-87b1-78bb3ee006b7');
-            this.agencies = (await agenciesData.json())
+            this.agencies = (await agenciesData.json()).filter(agency => agency['Id'] !== 'RG')
             // .filter(agency => TransitAccess.SUPPORTED_AGENCIES.includes(agency['Id']));
             this.dbVersion = this.agencies.reduce((acc, agency) => acc + new Date(agency['LastGenerated']).getTime(), 0);
             

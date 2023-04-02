@@ -16,12 +16,26 @@ export default class TransitMap {
     constructor() {
         useGeographic();
 
-        const style = new Style({
-            stroke: new Stroke({
-                color: 'rgba(255, 255, 255, 0.7)',
-                width: 2,
-            }),
-        })
+        const stroke = new Stroke({
+            color: 'rgba(255, 255, 255, 0.7)',
+            width: 2,
+        });
+
+        const fill = new Fill({
+            color: 'rgba(255, 255, 255, 0.7)',
+            width: 2,
+        });
+
+        const circle = new Circle({
+            radius: 8,
+            fill,
+            stroke
+        });
+
+        this.style = new Style({
+            stroke,
+            fill
+        });
 
         const tile = new TileLayer({
             source: new OSM()
@@ -44,9 +58,10 @@ export default class TransitMap {
         const vector = new VectorLayer({
             source: this.source,
             style: function (feature) {
-                const color = feature.get('COLOR') || '#000000';
-                style.getStroke().setColor(color);
-                return style;
+                // if (feature.getGeometry().getType() === 'Point') console.log(true);
+                const color = feature.get('COLOR') || '#FFFFFF';
+                this.style.getStroke().setColor(color);
+                return this.style;
             },
         });
 
@@ -68,8 +83,8 @@ export default class TransitMap {
         this.source.addFeatures(features);
     }
 
-    static featureWrap(geometry, style) {
-        return new Feature({ geometry, style });
+    static featureWrap(geometry) {
+        return new Feature({ geometry });
     }
 
     static featuresWrap(coordinates) {
@@ -83,6 +98,10 @@ export default class TransitMap {
         return new LineString(coordinates);
     }
 
+    static pointWrap(coordinate) {
+        return new Point(coordinate);
+    }
+
     async goToLocation() {
         const { coords } = await getLocation();
         const position = [coords.longitude, coords.latitude];
@@ -91,15 +110,29 @@ export default class TransitMap {
         view.setCenter(position);
         view.setZoom(15);
 
-        this.drawFeatures([TransitMap.featureWrap(new Point(position), new Circle({
-            radius: 8,
-            fill: new Fill({
-                color: '#BCCCDC',
-            }),
-            stroke: new Stroke({
-                color: '#BCCCDC',
-                width: 2,
-            }),
-        }))])
+        this.drawFeatures([TransitMap.featureWrap(new Point(position))])
+    }
+
+    createAgencyLayers(agencies) {
+        this.layers = Object.fromEntries(agencies.map(agency => [`agency_${agency['agency_id']}`, null]));
+    }
+
+    addFeatures(entry) {
+        const [className, features] = entry
+        const source = new VectorSource({ features });
+        const layer = new VectorLayer({ 
+            className, 
+            source, 
+            style: feature => {
+                // if (feature.getGeometry().getType() === 'Point') console.log(true);
+                const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
+                this.style.getStroke().setColor(color);
+                return this.style;
+            },
+            visible: false
+        });
+
+        this.layers[className] = layer;
+        this.map.addLayer(layer);
     }
 }
