@@ -28,7 +28,6 @@ export const settings = select('.settings > ul');
 export const agencyList = selectAll('.agency-list');
 
 // Footer
-export const feedProgress = select('.feed-progress');
 
 // Welcome
 export const continueButton = select('.continue');

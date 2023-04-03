@@ -1,4 +1,5 @@
 const path = require('path');
+const CopyPlugin = require('copy-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 
 const config = {
@@ -33,14 +34,25 @@ const config = {
                 test: /\.(tff|woff2|)$/,
                 type: 'asset/inline'
             }
-            
-        ]
+        ],
+    },
+    resolve: {
+        fallback: {
+            fs: false,
+            path: false,
+            crypto: false
+        }
     },
     plugins: [
-        new MiniCssExtractPlugin()
+        new MiniCssExtractPlugin(),
+        new CopyPlugin({
+            patterns: [
+                { from: "./node_modules/sql.js/dist/sql-wasm.wasm", to: "./" },
+            ],
+        }),
     ],
     experiments: {
-        topLevelAwait: true
+        futureDefaults: true
     }
 };
 

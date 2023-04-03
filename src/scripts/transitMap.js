@@ -13,10 +13,11 @@ import Fill from 'ol/style/Fill';
 import Stroke from 'ol/style/Stroke';
 import { agencyList } from './selectors';
 import { select } from 'd3-selection';
+import Timer from './timer';
 
 export default class TransitMap {
-    constructor(worker) {
-        this.worker = worker;
+    constructor(access) {
+        this.transitAccess = access;
         useGeographic();
 
         this.style = new Style({
@@ -72,46 +73,8 @@ export default class TransitMap {
         });
     }
 
-    drawFeatures(features) {
-        this.source.addFeatures(features);
-    }
-
-    static featureWrap(geometry) {
-        return new Feature({ geometry });
-    }
-
-    static featuresWrap(coordinates) {
-        return coordinates.map(coordinate => {
-            const point = new Point(coordinate);
-            return new Feature(point);
-        });
-    }
-
-    static lineStringWrap(coordinates) {
-        return new LineString(coordinates);
-    }
-
-    static pointWrap(coordinate) {
-        return new Point(coordinate);
-    }
-
-    async goToLocation() {
-        const { coords } = await getLocation();
-        const position = [coords.longitude, coords.latitude];
-
-        const view = this.map.getView();
-        view.setCenter(position);
-        view.setZoom(15);
-
-        this.drawFeatures([TransitMap.featureWrap(new Point(position))])
-    }
-
-    createAgencyLayers(agencies) {
-        this.layers = Object.fromEntries(agencies.map(agency => [`agency_${agency['agency_id']}`, null]));
-    }
-
     addFeatures(entry) {
-        const [className, features] = entry
+        const [className, features] = entry;
         const source = new VectorSource({ features });
         const layer = new VectorLayer({ 
             className, 
@@ -129,6 +92,55 @@ export default class TransitMap {
         this.map.addLayer(layer);
     }
 
+    drawMap() {
+        const drawTimer = new Timer('draw map');
+        console.log('Starting draw calculations.');
+
+        this.agencyFeatures = Object.fromEntries(this.transitAccess.agencies.map(agency => [`agency_${agency['Id']}`, new Array()]));
+
+        const routes = this.transitAccess.execOnAll('SELECT * FROM routes');
+        routes.forEach(route => {
+            try {
+                const shape = this.transitAccess.execOnAgency(route['agency_id'], `
+                    SELECT shape_pt_lon, shape_pt_lat
+                    FROM shapes
+                    WHERE shape_id = (
+                        SELECT shape_id
+                        FROM (
+                            SELECT shape_id, MAX(shape_count)
+                            FROM (
+                                SELECT shape_id, COUNT(*) AS shape_count
+                                FROM shapes 
+                                WHERE shape_id IN (
+                                    SELECT shape_id 
+                                    FROM trips
+                                    WHERE route_id = "${route['route_id']}"
+                                ) GROUP BY shape_id
+                            )
+                        )
+                    )
+                    ORDER BY shape_pt_sequence ASC;
+                `).map(coordinates => [ coordinates['shape_pt_lon'], coordinates['shape_pt_lat'] ]);
+                const feature = new Feature(new LineString(shape));
+                feature.set('COLOR', `#${route['route_color']}`);
+                feature.set('AGENCY_ID', route['agency_id']);
+                feature.set('ROUTE_ID', route['route_id']);
+                feature.set('SHORT_NAME', route['route_short_name']);
+                feature.set('LONG_NAME', route['route_long_name']);
+                this.agencyFeatures[`agency_${route['agency_id']}`].push(feature);
+            } catch(e) {
+                console.error(`Route threw an error!
+Agency: ${route['agency_id']}
+Route: ${route['route_id']}`, e.toString());
+            }
+        });
+
+        this.layers = Object.fromEntries(this.transitAccess.agencies.map(agency => [`agency_${agency['Id']}`, null]));
+        Object.entries(this.agencyFeatures).forEach(this.addFeatures.bind(this));
+
+        drawTimer.stop();
+    }
+
     setLayerVisible(agency_id, bool) {
         this.layers[`agency_${agency_id}`].setVisible(bool);
     }
@@ -140,7 +152,14 @@ export default class TransitMap {
         });
     }
 
-    async resetMap() {
+    goToLine(agency_id, route_id) {
+        this.map.getView().fit(this.agencyFeatures[`agency_${agency_id}`].find(feature => feature.get('ROUTE_ID') === route_id).getGeometry().getExtent(), {
+            size: this.map.getSize(),
+            padding: [50, 50, 50, 50]
+        });
+    }
+
+    resetMap() {
         Object.values(this.agencyFeatures).flat().forEach(feature => {
             const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
             feature.setStyle(new Style({
@@ -152,7 +171,7 @@ export default class TransitMap {
         });
         Object.values(this.layers).flat().forEach(layer => layer.setVisible(false));
         this.clearAgencyList();
-        await this.createAgencyElements();
+        this.createAgencyElements();
         const view = this.map.getView();
         view.setCenter([-122.2711639, 37.9743514]);
         view.setZoom(9.5);
@@ -162,11 +181,21 @@ export default class TransitMap {
         agencyList.nodes().forEach(el => Array.from(el.children).forEach(child => child.remove()));
     }
 
-    async createAgencyElements() {
-        const agencies = await this.worker.getAll('agency');
-        const routes = await this.worker.getAll('routes');
+    createAgencyElements() {
+        const agencies = this.transitAccess.execOnAll('SELECT * FROM agency').sort((a, b) => a['agency_name'].localeCompare(b['agency_name'])).concat(['all']);
+        const routes = this.transitAccess.execOnAll('SELECT * FROM routes')
 
         agencies.forEach((agency, i) => {
+            if (agency === 'all') {
+                select(agencyList.nodes()[1])
+                    .append('li')
+                    .append('p')
+                    .style('cursor', 'default')
+                    .text('All Agencies')
+                    .on('mouseenter', () => Object.values(this.layers).forEach(layer => layer.setVisible(true)))
+                    .on('mouseleave', () => Object.values(this.layers).forEach(layer => layer.setVisible(false)));
+                return;
+            }
             select(agencyList.nodes()[Math.floor(i / (agencies.length / 2))])
                 .append('li')
                 .append('p')
@@ -177,9 +206,28 @@ export default class TransitMap {
                 .on('click', () => {
                     this.goToLayer(agency['agency_id']);
                     this.clearAgencyList();
-                    const newRoutes = routes.filter(route => route['agency_id'] === agency['agency_id']);
+                    const newRoutes = routes.filter(route => route['agency_id'] === agency['agency_id']).sort((a, b) => a['route_short_name'].localeCompare(b['route_short_name'])).concat(['all']);
                     const features = this.agencyFeatures[`agency_${agency['agency_id']}`].filter(feature => feature.get('AGENCY_ID') === agency['agency_id']);
                     newRoutes.forEach((route, i) => {
+                        if (route === 'all') {
+                            const styles = Object.values(this.agencyFeatures).flat().map(feature => {
+                                const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
+                                    return new Style({
+                                        stroke: new Stroke({
+                                            width: 2,
+                                            color
+                                        })
+                                    });
+                            });
+                            select(agencyList.nodes()[1])
+                                .append('li')
+                                .append('p')
+                                .style('cursor', 'default')
+                                .text('All Routes')
+                                .on('mouseenter', () => Object.values(this.agencyFeatures).flat().forEach((feature, i) => feature.setStyle(styles[i])))
+                                .on('mouseleave', () => Object.values(this.agencyFeatures).flat().forEach(feature => feature.setStyle(new Style(null))));
+                            return;
+                        }
                         const feature = features.find(feature => feature.get('AGENCY_ID') === agency['agency_id'] && feature.get('ROUTE_ID') === route['route_id']);
                         const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
                         const style = new Style({
@@ -196,65 +244,13 @@ export default class TransitMap {
                             .text(route['route_short_name'])
                             .attr('title', route['route_long_name'])
                             .on('mouseenter', () => feature.setStyle(style))
-                            .on('mouseleave', () => feature.setStyle(new Style(null)));
-                    })
+                            .on('mouseleave', () => feature.setStyle(new Style(null)))
+                            .on('click', () => {
+                                this.goToLine(route['agency_id'], route['route_id']);
+                                this.clearAgencyList();
+                            });
+                    });
                 });
         });
-    }
-
-    async drawMap() {
-        const agencies = await this.worker.getAll('agency');
-        console.log('Starting draw calculations.');
-
-        this.agencyFeatures = Object.fromEntries(agencies.map(agency => [`agency_${agency['agency_id']}`, new Array()]));
-        const startTime = new Date();
-        
-        const routes = await this.worker.getAll('routes');
-        for (let i = 0; i < routes.length; i++) {
-            const route = routes[i];
-            try {
-                // const trips = await this.worker.getWhere('trips', {
-                //     agency_id: route['agency_id'], 
-                //     route_id: route['route_id']
-                // });
-
-                // const shapeCounts = {};
-                // for (let j = 0; j < trips.length; j++) {
-                //     const trip = trips[j];
-                //     const shapesCount = await this.worker.getWhereCount('shapes', {
-                //         shape_id: trip['shape_id'],
-                //         agency_id: trip['agency_id']
-                //     });
-
-                //     // console.log(shapesCount)
-                //     shapeCounts[trip['shape_id']] = shapesCount;
-                // }
-                // Object.entries(shapeCounts).sort(shapeCount => )
-                // console.log(shapeCounts)
-                
-                const trip = await this.worker.getWhereFirst('trips', {
-                    agency_id: route['agency_id'], 
-                    route_id: route['route_id']
-                });
-                const points = await this.worker.getWhere('shapes', '[shape_id+agency_id]', [trip['shape_id'], trip['agency_id']]);
-                const feature = TransitMap.featureWrap(TransitMap.lineStringWrap(points.sort((a, b) => a['shape_pt_sequence'] - b['shape_pt_sequence']).map(seq => [seq['shape_pt_lon'], seq['shape_pt_lat']])));
-                feature.set('COLOR', `#${route['route_color']}`);
-                feature.set('AGENCY_ID', route['agency_id']);
-                feature.set('ROUTE_ID', route['route_id']);
-                feature.set('SHORT_NAME', route['route_short_name']);
-                feature.set('LONG_NAME', route['route_long_name']);
-                this.agencyFeatures[`agency_${route['agency_id']}`].push(feature);
-            } catch(e) {
-//                 console.error(`Route threw an error!
-// Agency: ${route['agency_id']}
-// Route: ${route['route_id']}`, e.toString());
-            }
-        }
-
-        this.createAgencyLayers(agencies);
-        Object.entries(this.agencyFeatures).forEach(this.addFeatures.bind(this));
-
-        const timeElapsed = new Date(new Date() - startTime);
-        console.log(`Finished in ${timeElapsed.getSeconds()} sec, ${timeElapsed.getMilliseconds()} ms`);
     }
 }

@@ -1,4 +1,3 @@
-// import * as d3 from 'd3';
 import { content, continueButton, footer, headerButtons, headerCenter, loading, main, map, mapToggle, navbar, navbarToggle, settings, settingsToggle, welcome } from "./selectors";
 
 export const fadeInMain = function() {
@@ -38,7 +37,7 @@ export const getLocation = async () => {
     return new Promise(resolve => navigator.geolocation.getCurrentPosition(resolve));
 }
 
-const handleBars = function() {
+export const handleBars = function() {
     if (navbar.style('width') === '250px') {
         navbarToggle.style('margin-left', '20px');
         content.style('margin-left', 0);
@@ -52,16 +51,10 @@ const handleBars = function() {
     }
 }
 
-const handleGear = function() {
+export const handleGear = function() {
     if (settings.style('opacity') == 1) {
         settings.style('opacity', 0);
     } else {
         settings.style('opacity', 1);
     }
 }
-
-document.querySelector('.continue').addEventListener('click', fadeInMain);
-document.querySelector('.fa-map-location-dot').addEventListener('click', fadeOutMainInMap);
-document.querySelector('.fa-bars').addEventListener('click', handleBars);
-document.querySelector('.fa-gear').addEventListener('click', handleGear);
-// window.fadeOutMainInMap = fadeOutMainInMap;

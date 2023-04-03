@@ -1,7 +1,7 @@
 {
   "name": "ontime-transit",
   "version": "1.0.0",
-  "description": "",
+  "description": "OnTime Transit is a data visualization project to allow users to translate data given by California's Metropolitan Transportation Commission (MTC) to a human-readable format in the browser using JavaScript and third-party libraries.",
   "main": "index.js",
   "browserslist": [
     "defaults"
@@ -11,32 +11,35 @@
   },
   "scripts": {
     "watch": "concurrently --names \"WEBPACK,SERVE\" \"webpack --watch --mode=development\" \"serve\"",
-    "build": "webpack --mode=production"
+    "build": "webpack --mode=production",
+    "buildFeeds": "node downloadFeeds.js"
   },
   "keywords": [],
   "author": "Brian Vo",
   "license": "ISC",
   "dependencies": {
+    "@babel/cli": "^7.21.0",
     "@babel/core": "^7.21.3",
     "@babel/preset-env": "^7.20.2",
-    "@fortawesome/fontawesome": "^1.1.8",
     "@fortawesome/fontawesome-free": "^6.4.0",
-    "@zip.js/zip.js": "^2.6.83",
     "babel-loader": "^9.1.2",
     "core-js": "^3.29.1",
     "css-loader": "^6.7.3",
     "d3": "^7.8.3",
-    "dexie": "^3.2.3",
+    "gtfs": "^4.1.0",
+    "localforage": "^1.10.0",
     "mini-css-extract-plugin": "^2.7.5",
     "ol": "^7.3.0",
     "regenerator-runtime": "^0.13.11",
     "sass": "^1.60.0",
     "sass-loader": "^13.2.2",
+    "sql.js": "^1.8.0",
     "webpack": "^5.77.0",
     "webpack-cli": "^5.0.1"
   },
   "devDependencies": {
     "concurrently": "^8.0.1",
+    "copy-webpack-plugin": "^11.0.0",
     "serve": "^14.2.0"
   }
 }
