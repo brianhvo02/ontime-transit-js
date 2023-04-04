@@ -1,4 +1,4 @@
-import { content, footer, headerButtons, headerCenter, loading, main, map, welcome } from "./selectors";
+import { footer, headerButtons, headerCenter, list, loading, main, map, welcome } from "./selectors";
 
 export const fadeOut = function(element) {
     element.style('opacity', 0);
@@ -8,14 +8,18 @@ export const fadeOut = function(element) {
 }
 
 export const fadeIn = function(element, container) {
-    element.style('display', container ? 'flex' : 'block');
+    if (element.node().tagName === 'UL') {
+        element.style('display', 'grid');
+        
+    } else {
+        element.style('display', container ? 'flex' : 'block');
+    }
+   
     element.style('opacity', 1);
 }
 
 export const fadeInMain = function(transitMap) {
-    welcome.style('opacity', 0);
-    welcome.style('z-index', 0);
-
+    fadeOut(welcome)
     fadeOut(loading);
 
     fadeIn(main, true);
@@ -23,7 +27,7 @@ export const fadeInMain = function(transitMap) {
     
     setTimeout(() => {
         fadeIn(headerButtons, true);
-        fadeIn(content, true);
+        fadeIn(list);
         fadeIn(footer, true);
         transitMap.createAgencyElements();
         fadeIn(map);

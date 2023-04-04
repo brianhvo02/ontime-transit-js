@@ -7,14 +7,16 @@ import { Feature } from 'ol';
 import { LineString, Point } from 'ol/geom';
 import VectorSource from 'ol/source/Vector';
 import VectorLayer from 'ol/layer/Vector';
-import { fadeIn, fadeOut, fadeOutMain, getLocation } from './domManip';
+import { fadeIn, fadeOut, getLocation } from './domManip';
 import Circle from 'ol/style/Circle';
 import Style from 'ol/style/Style';
 import Fill from 'ol/style/Fill';
 import Stroke from 'ol/style/Stroke';
-import { backButton, list, main, map } from './selectors';
+import { backButton, list, loading, main, map } from './selectors';
 import { select } from 'd3-selection';
 import Timer from './timer';
+import GtfsRealtimeBindings from "gtfs-realtime-bindings";
+import localforage from 'localforage';
 
 export default class TransitMap {
     constructor(access) {
@@ -40,7 +42,7 @@ export default class TransitMap {
         });
 
         const tile = new TileLayer({
-            preload: 9.5,
+            preload: Infinity,
             source: new OSM()
         });
 
@@ -206,10 +208,21 @@ export default class TransitMap {
     }
 
     async goToCurrentLocation() {
-        const { coords } = await getLocation();
-        const view = this.map.getView();
-        view.setCenter([coords.longitude, coords.latitude])
-        view.setZoom(16);
+        fadeOut(main);
+        fadeIn(loading, true);
+
+        if (!this.coords) {
+            const { coords } = await getLocation();
+            this.coords = coords;
+        }
+
+        fadeOut(loading);
+        
+        this.map.getView().animate({
+            center: [this.coords.longitude, this.coords.latitude],
+            zoom: 16,
+            duration: 1000
+        });
     }
 
     resetMap() {
@@ -245,7 +258,6 @@ export default class TransitMap {
 
             case 'stops':
                 const [stopsAgencyId] = select('.list > li > p').node().dataset['stopData'].split(',');
-                console.log(stopsAgencyId)
                 this.createRouteElements(stopsAgencyId);
                 break;
             
@@ -332,7 +344,9 @@ export default class TransitMap {
                 });
                 feature.setStyle(new Style(null));
                 return style;
-            })
+            });
+
+            routeFeatures.forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(this.style) : feature.setStyle(styles[i]));
             
             select(list.nodes()[routes.length > 30 ? Math.floor(i / (routes.length / 2)) : 0])
                 .append('li')
@@ -408,45 +422,88 @@ export default class TransitMap {
         });
     }
 
-    createStopTimeElements(agencyId, routeId, stopId) {
+    async createStopTimeElements(agencyId, routeId, stopId) {
         this.currentState = 'stopTimes';
         this.goToStop(agencyId, stopId);
         this.clearList();
         const date = new Date();
         const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
+        let stopRealTimesBuf = await localforage.getItem(`${agencyId}_realtime`);
+        let stopRealTimesTimestamp = await localforage.getItem(`${agencyId}_realtime_timestamp`);
+        if (!(stopRealTimesTimestamp && stopRealTimesBuf && stopRealTimesTimestamp + 300000 < date.getTime())) {
+            stopRealTimesBuf = await fetch(`https://api.511.org/transit/tripupdates?api_key=7cf5660e-215b-489d-87b1-78bb3ee006b7&agency=${agencyId}`).then(res => res.arrayBuffer());
+            await localforage.setItem(`${agencyId}_realtime`, stopRealTimesBuf);
+            stopRealTimesTimestamp = date.getTime();
+            await localforage.setItem(`${agencyId}_realtime_timestamp`, stopRealTimesTimestamp);
+        }
+       
+        const stopRealTimes = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(stopRealTimesBuf)).entity;
+
         const routeShortName = this.transitAccess.execOnAgency(agencyId, `
             SELECT route_short_name
             FROM routes
-            WHERE route_id = ${routeId}
+            WHERE route_id = "${routeId}"
             LIMIT 1
         `)[0]['route_short_name'];
-
+        
         const stopTimesFiltered = this.transitAccess.execOnAgency(agencyId, `
-            SELECT strftime('%H:%M', datetime(stop_times.departure_timestamp, 'unixepoch')) departure_time, trip_headsign, stop_headsign, trips.trip_id
+            SELECT time(stop_times.departure_timestamp, 'unixepoch') departure_time, trip_headsign, stop_headsign, trips.trip_id
             FROM stop_times 
             JOIN trips ON trips.trip_id = stop_times.trip_id
             JOIN stops ON stops.stop_id = stop_times.stop_id
             JOIN routes ON routes.route_id = trips.route_id
-            JOIN calendar ON trips.service_id = calendar.service_id
+            LEFT OUTER JOIN calendar ON trips.service_id = calendar.service_id
             WHERE stops.stop_id = "${stopId}"
                 AND routes.route_id = "${routeId}"
-                AND stop_times.departure_timestamp >= ${(date.getHours() * 60 * 60) + (date.getMinutes() * 60) + date.getSeconds()}
-                AND calendar.${days[date.getDay()]} = 1
+                AND stop_times.departure_timestamp >= ${date.getHours() * 60 * 60 + date.getMinutes() * 60 + date.getSeconds()}
+                AND (
+                    trips.service_id IN (
+                        SELECT service_id
+                        FROM calendar_dates 
+                        WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate()}"
+                            AND exception_type = 1
+                    )
+                    OR (
+                        trips.service_id NOT IN (
+                            SELECT service_id
+                            FROM calendar_dates 
+                            WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate()}"
+                                AND exception_type = 2
+                        )
+                        AND ${days[date.getDay()]} = 1
+                    )
+                )
             ORDER BY departure_timestamp 
             LIMIT 30;
         `);
 
         const stopTimes = this.transitAccess.execOnAgency(agencyId, `
-            SELECT strftime('%H:%M', datetime(stop_times.departure_timestamp, 'unixepoch')) departure_time, trip_headsign, stop_headsign, trips.trip_id
+            SELECT time(stop_times.departure_timestamp, 'unixepoch') departure_time, trip_headsign, stop_headsign, trips.trip_id, routes.route_id, routes.route_short_name
             FROM stop_times 
             JOIN trips ON trips.trip_id = stop_times.trip_id
             JOIN stops ON stops.stop_id = stop_times.stop_id
             JOIN routes ON routes.route_id = trips.route_id
-            JOIN calendar ON trips.service_id = calendar.service_id
+            LEFT OUTER JOIN calendar ON trips.service_id = calendar.service_id
             WHERE stops.stop_id = "${stopId}"
-                AND stop_times.departure_timestamp >= ${(date.getHours() * 60 * 60) + (date.getMinutes() * 60) + date.getSeconds()}
-                AND calendar.${days[date.getDay()]} = 1
+                AND stop_times.departure_timestamp >= ${date.getHours() * 60 * 60 + date.getMinutes() * 60 + date.getSeconds()}
+                AND (
+                    trips.service_id IN (
+                        SELECT service_id
+                        FROM calendar_dates 
+                        WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate()}"
+                            AND exception_type = 1
+                    )
+                    OR (
+                        trips.service_id NOT IN (
+                            SELECT service_id
+                            FROM calendar_dates 
+                            WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate()}"
+                                AND exception_type = 2
+                        )
+                        AND ${days[date.getDay()]} = 1
+                    )
+                )
             ORDER BY departure_timestamp 
             LIMIT 30;
         `);
@@ -469,21 +526,48 @@ export default class TransitMap {
                 .text('See stop times for all routes.')
                 .on('click', () => createElements(false));
 
-            (ignoreOtherRoutes ? stopTimesFiltered : stopTimes).forEach(stopTime => {
+            (ignoreOtherRoutes ? stopTimesFiltered : stopTimes).forEach((stopTime, i) => {
                 const {
                     departure_time: departureTime,
                     trip_headsign: tripHeadsign,
                     stop_headsign: stopHeadsign,
                     trip_id: tripId,
+                    route_short_name: routeShortName,
+                    route_id: tripRouteId
                 } = stopTime;
-                
-                select(list.nodes()[0])
-                    .append('li')
-                    .append('p')
-                    // .style('cursor', 'pointer')
-                    .text(`${departureTime}${ignoreOtherRoutes ? '' : ` - ${stopHeadsign ? stopHeadsign : tripHeadsign}`}`)
-                    // .attr('title', routeLongName)
-                    .node().dataset['stopTimeData'] = [agencyId, routeId, stopId].join(',');
+
+                if (ignoreOtherRoutes && i === 0) {
+                    this.agencyFeatures[`agency_${agencyId}`]
+                        .filter(feature => feature.get('ROUTE_ID') !== routeId && feature.getGeometry().getType() === 'LineString')
+                        .forEach(feature => feature.setStyle(new Style(null)));
+                }
+
+                if (!ignoreOtherRoutes) {
+                    const feature = this.agencyFeatures[`agency_${agencyId}`].find(feature => feature.get('ROUTE_ID') === tripRouteId && feature.getGeometry().getType() === 'LineString')
+
+                    const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
+                    const style = new Style({
+                        stroke: new Stroke({
+                            width: 2,
+                            color
+                        })
+                    });
+                    feature.setStyle(style);
+                }
+
+                try {
+                    const updatedTimeEntity = stopRealTimes.find(entity => entity.id === tripId);
+                    const updatedTime = updatedTimeEntity ? updatedTimeEntity.tripUpdate.stopTimeUpdate.find(stopTimeUpdate => stopTimeUpdate.stopId === stopId) : null;
+                    select(list.nodes()[0])
+                        .append('li')
+                        .append('p')
+                        // .style('cursor', 'pointer')
+                        .text(`${updatedTime && updatedTime.departure ? new Date(updatedTime.departure.time * 1000).toLocaleTimeString('en-US') : (updatedTime && updatedTime.arrival ? new Date(updatedTime.arrival.time * 1000).toLocaleTimeString('en-US') : new Date('0 ' + departureTime).toLocaleTimeString('en-US'))}${ignoreOtherRoutes ? '' : ` - ${routeShortName} (${stopHeadsign ? stopHeadsign : tripHeadsign})`}`)
+                        // .attr('title', routeLongName)
+                        .node().dataset['stopTimeData'] = [agencyId, routeId, stopId].join(',');
+                } catch (e) {
+                    console.error(e);
+                }
             });
         }
 

@@ -11,11 +11,13 @@
     margin-top: 2%;
     margin-right: 2%;
     margin-left: 2%;
+    z-index: 1;
+    transition: 0.5s;
     li {
         text-align: center;
         margin: 5px 0;
-        a {
-            text-decoration: none;
+        p {
+            display: inline;
         }
     }
 }

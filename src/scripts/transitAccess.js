@@ -58,7 +58,8 @@ export default class TransitAccess {
         return this.databases.map(db => this.wrap(db.exec(query))).flat();
     }
 
-    execOnAgency(agency_id, query) {
+    execOnAgency(agency_id, query, debug) {
+        if (debug) console.log(query);
         return this.wrap(this.agencies.find(agency => agency['Id'] === agency_id).database.exec(query));
     }
 

@@ -2,6 +2,7 @@ import { fadeIn, fadeInMain, fadeInWelcome, fadeOut } from "./scripts/domManip";
 import { backButton, error, loading } from "./scripts/selectors";
 import TransitAccess from "./scripts/transitAccess";
 import TransitMap from "./scripts/transitMap";
+import GtfsRealtimeBindings from 'gtfs-realtime-bindings';
 
 document.querySelector('.continue').addEventListener('click', fadeInMain);
 
@@ -25,7 +26,7 @@ document.querySelector('.continue').addEventListener('click', fadeInMain);
         console.log(e);
         
         fadeOut(loading);
-        fadeIn(error);
+        fadeIn(error, true);
     }
 })();
 

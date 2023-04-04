@@ -10,7 +10,7 @@ export const welcome = select('.welcome-container');
 
 // Main Container
 export const header = select('header');
-export const content = select('.content');
+export const list = selectAll('.list');
 export const footer = select('footer');
 
 // Header
@@ -19,9 +19,6 @@ export const headerButtons = selectAll('.side-buttons');
 export const mapToggle = select('.fa-map-location-dot');
 export const locationToggle = select('.fa-location-dot');
 export const backButton = select('.fa-circle-arrow-left');
-
-// Content
-export const list = selectAll('.list');
 
 // Footer
 
