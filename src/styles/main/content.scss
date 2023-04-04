@@ -1,33 +1,4 @@
-.content {
-    // flex: 1 0 auto;
-    // display: flex;
-    // flex-direction: row;
-    // align-items: flex-start;
-    // justify-content: space-between;
-    // position: absolute;
-    margin: 10px;
-
-    opacity: 0;
-    transition: 0.5s;
-
-    .agency-container {
-        // display: flex;
-        // flex-direction: column;
-        // align-items: center;
-        // justify-content: center;
-        // flex-wrap: wrap;
-        // height: 100%;
-        // width: 100%;
-
-        
-
-        
-    }
-
-    
-}
-
-.agency-list {
+.list {
     position: absolute;
     display: grid;
     grid-template-rows: 10% repeat(auto-fill, 10%);
@@ -49,7 +20,7 @@
     }
 }
 
-.agency-list-right {
+.list-right {
     bottom: 0;
     right: 0;
 }

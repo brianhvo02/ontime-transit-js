@@ -16,16 +16,12 @@ export const footer = select('footer');
 // Header
 export const headerCenter = select('.header-center');
 export const headerButtons = selectAll('.side-buttons');
-export const navbar = select('nav');
-export const navbarToggle = select('.fa-bars');
 export const mapToggle = select('.fa-map-location-dot');
 export const locationToggle = select('.fa-location-dot');
-export const settingsToggle = select('.fa-gear');
-export const reloadButton = select('.reload-button');
-export const settings = select('.settings > ul');
+export const backButton = select('.fa-circle-arrow-left');
 
 // Content
-export const agencyList = selectAll('.agency-list');
+export const list = selectAll('.list');
 
 // Footer
 

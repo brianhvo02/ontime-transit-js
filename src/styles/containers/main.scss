@@ -7,13 +7,6 @@ html, body {
     height: 100%;
 }
 
-// .main-container {
-//     flex-direction: column;
-//     height: 100%;
-//     opacity: 0;
-//     transition: 0.5s;
-//     display: none;
-    
-//     position: relative;
-//     z-index: 1;
-// }
+.main-container {
+    transition: 0.5s;
+}
