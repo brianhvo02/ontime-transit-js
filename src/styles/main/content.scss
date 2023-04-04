@@ -1,9 +1,10 @@
 .content {
-    flex: 1 0 auto;
-    display: flex;
-    flex-direction: row;
+    // flex: 1 0 auto;
+    // display: flex;
+    // flex-direction: row;
     // align-items: flex-start;
-    justify-content: space-between;
+    // justify-content: space-between;
+    // position: absolute;
     margin: 10px;
 
     opacity: 0;
@@ -17,25 +18,38 @@
         // flex-wrap: wrap;
         // height: 100%;
         // width: 100%;
-        margin: 2%;
 
-        h2 {
-            font-size: 25px;
-            margin: 30px;
-        }
+        
 
-        .agency-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fill,minmax(160px, 1fr));
-            height: 800px;
-            width: 400px;
-            li {
-                text-align: center;
-                margin: 5px 0;
-                a {
-                    text-decoration: none;
-                }
-            }
+        
+    }
+
+    
+}
+
+.agency-list {
+    position: absolute;
+    display: grid;
+    grid-template-rows: 10% repeat(auto-fill, 10%);
+    grid-auto-flow: column;
+    grid-auto-columns: auto;
+    // grid-template-columns: repeat(auto-fill,minmax(160px, 1fr));
+    top: 10%;
+    height: 80%;
+    width: 600px;
+    margin-top: 2%;
+    margin-right: 2%;
+    margin-left: 2%;
+    li {
+        text-align: center;
+        margin: 5px 0;
+        a {
+            text-decoration: none;
         }
     }
+}
+
+.agency-list-right {
+    bottom: 0;
+    right: 0;
 }

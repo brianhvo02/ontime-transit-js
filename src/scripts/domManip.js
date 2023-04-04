@@ -1,21 +1,32 @@
 import { content, continueButton, footer, headerButtons, headerCenter, loading, main, map, mapToggle, navbar, navbarToggle, settings, settingsToggle, welcome } from "./selectors";
 
-export const fadeInMain = function() {
+const fadeOut = function(element) {
+    element.style('opacity', 0);
+    setTimeout(() => {
+        element.style('display', 'none');
+    }, 500);
+}
+
+const fadeIn = function(element, container) {
+    element.style('display', container ? 'flex' : 'block');
+    element.style('opacity', 1);
+}
+
+export const fadeInMain = function(transitMap) {
     welcome.style('opacity', 0);
     welcome.style('z-index', 0);
 
-    loading.style('opacity', 0);
-    loading.style('z-index', 0);
+    fadeOut(loading);
 
-    main.style('opacity', 1);
-    main.style('z-index', 1);
-    headerCenter.style('opacity', 1);
+    fadeIn(main, true);
+    fadeIn(headerCenter, true);
     
     setTimeout(() => {
-        headerButtons.style('opacity', 1);
-        content.style('opacity', 1);
-        footer.style('opacity', 1);
-        map.style('opacity', 1);
+        fadeIn(headerButtons, true);
+        fadeIn(content, true);
+        fadeIn(footer, true);
+        transitMap.createAgencyElements();
+        fadeIn(map);
     }, 1500);
 }
 
@@ -34,7 +45,7 @@ export const fadeInWelcome = function() {
 }
 
 export const getLocation = async () => {
-    return new Promise(resolve => navigator.geolocation.getCurrentPosition(resolve));
+    return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true }));
 }
 
 export const handleBars = function() {

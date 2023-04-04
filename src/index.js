@@ -14,14 +14,17 @@ document.querySelector('.fa-gear').addEventListener('click', handleGear);
         const transitAccess = await new TransitAccess().instance;
         const transitMap = new TransitMap(transitAccess);
         transitMap.drawMap();
-        transitMap.createAgencyElements();
         document.querySelector('.fa-train-subway').addEventListener('click', transitMap.resetMap.bind(transitMap));
+        document.querySelector('.fa-location-dot').addEventListener('click', transitMap.goToCurrentLocation.bind(transitMap));
+        
+        let loaded = false;
 
-        if (notFirstLoad) {
-            fadeInMain();
-        } else {
-            fadeInWelcome();
-        }
+        transitMap.map.on('rendercomplete', () => {
+            if (!loaded) {
+                loaded = true;
+                notFirstLoad ? fadeInMain(transitMap) : fadeInWelcome();
+            }
+        });
     } catch (e) {
         console.log(e);
         loading.style('opacity', 0);

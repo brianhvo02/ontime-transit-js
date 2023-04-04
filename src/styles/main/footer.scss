@@ -4,6 +4,11 @@ footer {
     justify-content: center;
     opacity: 0;
     transition: 0.5s;
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: auto;
 
     .logo-511 {
         width: 250px;
