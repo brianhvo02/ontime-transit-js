@@ -18,6 +18,18 @@ export const fadeIn = function(element, container) {
     element.style('opacity', 1);
 }
 
+export const fadeInList = function() {
+    fadeIn(list);
+    list.style('border-color', 'rgba(128, 128, 128, 0.8)');
+    list.style('background-color', 'rgba(211, 211, 211, 0.2)')
+}
+
+export const fadeOutList = function() {
+    fadeOut(list);
+    list.style('border-color', 'rgba(128, 128, 128, 0)');
+    list.style('background-color', 'rgba(211, 211, 211, 0)')
+}
+
 export const fadeInMain = function(transitMap) {
     fadeOut(welcome)
     fadeOut(loading);
@@ -27,7 +39,7 @@ export const fadeInMain = function(transitMap) {
     
     setTimeout(() => {
         fadeIn(headerButtons, true);
-        fadeIn(list);
+        fadeInList();
         fadeIn(footer, true);
         transitMap.createAgencyElements();
         fadeIn(map);

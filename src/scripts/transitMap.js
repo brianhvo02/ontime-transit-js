@@ -7,7 +7,7 @@ import { Feature } from 'ol';
 import { LineString, Point } from 'ol/geom';
 import VectorSource from 'ol/source/Vector';
 import VectorLayer from 'ol/layer/Vector';
-import { fadeIn, fadeOut, getLocation } from './domManip';
+import { fadeIn, fadeInMain, fadeInWelcome, fadeOut, fadeOutList, getLocation } from './domManip';
 import Circle from 'ol/style/Circle';
 import Style from 'ol/style/Style';
 import Fill from 'ol/style/Fill';
@@ -17,6 +17,7 @@ import { select } from 'd3-selection';
 import Timer from './timer';
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import localforage from 'localforage';
+import { containsXY } from 'ol/extent';
 
 export default class TransitMap {
     constructor(access) {
@@ -34,9 +35,12 @@ export default class TransitMap {
             }),
             image: new Circle({
                 radius: 2,
-                fill: new Fill({color: 'white'}),
+                fill: new Fill({
+                    color: 'rgba(211, 211, 211, 0.8)'
+                }),
                 stroke: new Stroke({
-                    color: [255, 255, 255], width: 2
+                    color: [211, 211, 211], 
+                    width: 2
                 })
             })
         });
@@ -76,10 +80,34 @@ export default class TransitMap {
             controls: []
         });
 
+        this.loaded = false;
+        this.map.on('movestart', () => {
+            backButton.style('pointer-events', 'none');
+            list.style('pointer-events', 'none');
+        });
+        this.map.on('moveend', () => {
+            backButton.style('pointer-events', 'auto');
+            list.style('pointer-events', 'auto');
+        });
+        this.map.on('rendercomplete', () => {
+            if (!this.loaded) {
+                this.loaded = true;
+                fadeOut(backButton);
+                localStorage.getItem('agencies') ? fadeInMain(this) : fadeInWelcome();
+            }
+        });
+
         document.querySelector('.fa-circle-arrow-left').addEventListener('click', this.handleBack.bind(this));
         document.querySelector('.fa-train-subway').addEventListener('click', this.createAgencyElements.bind(this));
         document.querySelector('.fa-location-dot').addEventListener('click', this.goToCurrentLocation.bind(this));
         document.querySelector('.fa-map-location-dot').addEventListener('click', () => fadeOut(main));
+    }
+
+    distanceRange(coord, dist = 1) {
+        const [lon, lat] = coord;
+        const latDist = dist / 69;
+        const lonDist = dist / (Math.cos(lat * Math.PI / 180) * 69.172);
+        return [lon - lonDist, lat - latDist, lon + lonDist, lat + latDist];
     }
 
     addFeatures(entry) {
@@ -208,7 +236,7 @@ export default class TransitMap {
     }
 
     async goToCurrentLocation() {
-        fadeOut(main);
+        this.resetMap(true);
         fadeIn(loading, true);
 
         if (!this.coords) {
@@ -216,16 +244,54 @@ export default class TransitMap {
             this.coords = coords;
         }
 
-        fadeOut(loading);
+        const extent = this.distanceRange([this.coords.longitude, this.coords.latitude])
         
-        this.map.getView().animate({
-            center: [this.coords.longitude, this.coords.latitude],
-            zoom: 16,
+        this.map.getView().fit(extent, {
+            size: this.map.getSize(),
+            padding: [50, 50, 50, 50],
             duration: 1000
         });
+
+        const feature = new Feature(new Point([this.coords.longitude, this.coords.latitude]));
+        feature.setStyle(new Style({
+            image: new Circle({
+                radius: 8,
+                fill: new Fill({
+                    color: 'rgb(66, 133, 244)'
+                }),
+                stroke: new Stroke({
+                    color: [255, 255, 255], 
+                    width: 2
+                })
+            })
+        }));
+        
+        this.map.addLayer(new VectorLayer({
+            source: new VectorSource({
+                features: [ feature ]
+            })
+        }));
+            
+
+        fadeOut(loading);
+
+        const features = Object.values(this.agencyFeatures).flat().filter(feature => containsXY(extent, ...feature.getGeometry().getCoordinates()));
+        const styles = features.map(feature => {
+            const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
+            const style = new Style({
+                stroke: new Stroke({
+                    width: 2,
+                    color
+                })
+            });
+            return style;
+        });
+
+        features.forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(this.style) : feature.setStyle(styles[i]));
+        this.createCurrentLocationStopElements(features);
     }
 
-    resetMap() {
+    resetMap(currentLocation = false) {
         Object.values(this.agencyFeatures).flat().forEach(feature => {
             const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
             feature.setStyle(new Style({
@@ -236,11 +302,13 @@ export default class TransitMap {
             }));
         });
         Object.values(this.layers).flat().forEach(layer => layer.setVisible(true));
-        this.map.getView().animate({
-            center: [-122.2711639, 37.9743514],
-            zoom: 9.5,
-            duration: 1000
-        });
+        if (!currentLocation) {
+            this.map.getView().animate({
+                center: [-122.2711639, 37.9743514],
+                zoom: 9.5,
+                duration: 1000
+            });
+        }
     }
 
     clearList() {
@@ -259,6 +327,10 @@ export default class TransitMap {
             case 'stops':
                 const [stopsAgencyId] = select('.list > li > p').node().dataset['stopData'].split(',');
                 this.createRouteElements(stopsAgencyId);
+                break;
+
+            case 'currentLocationStops':
+                this.createAgencyElements();
                 break;
             
             case 'stopTimes':
@@ -279,6 +351,7 @@ export default class TransitMap {
         this.clearList();
         this.resetMap();
         fadeOut(backButton);
+        
         const agencies = this.transitAccess.execOnAll(`
             SELECT * 
             FROM agency
@@ -346,7 +419,7 @@ export default class TransitMap {
                 return style;
             });
 
-            routeFeatures.forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(this.style) : feature.setStyle(styles[i]));
+            routeFeatures.forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(new Style(null)) : feature.setStyle(styles[i]));
             
             select(list.nodes()[routes.length > 30 ? Math.floor(i / (routes.length / 2)) : 0])
                 .append('li')
@@ -361,7 +434,7 @@ export default class TransitMap {
                 .on('mouseleave', () => {
                     // this.setLayerVisible(agencyId, false);
                     routeFeatures.forEach(feature => feature.setStyle(new Style(null)));
-                    Object.values(this.agencyFeatures).flat().forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(this.style) : feature.setStyle(styles[i]));
+                    Object.values(this.agencyFeatures).flat().forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(new Style(null)) : feature.setStyle(styles[i]));
                     this.goToLayer(agencyId);
                 })
                 .on('contextmenu', e => {
@@ -375,19 +448,20 @@ export default class TransitMap {
 
     createStopElements(agencyId, routeId) {
         this.currentState = 'stops';
+        fadeIn(backButton);
         this.clearList();
         this.goToLine(agencyId, routeId);
         const stops = this.agencyFeatures[`agency_${agencyId}`]
-        .filter(feature => feature.get('ROUTE_ID') === routeId && feature.getGeometry().getType() === 'Point')
-        .map(feature => {
-            feature.setStyle(new Style(null));
-            return {
-                stopId: feature.get('STOP_ID'),
-                stopName: feature.get('STOP_NAME'),
-                feature
-            }
-        })
-        .sort((a, b) => a['stop_sequence'] - b['stop_sequence']).concat(['all']);
+            .filter(feature => feature.get('ROUTE_ID') === routeId && feature.getGeometry().getType() === 'Point')
+            .map(feature => {
+                feature.setStyle(new Style(null));
+                return {
+                    stopId: feature.get('STOP_ID'),
+                    stopName: feature.get('STOP_NAME'),
+                    feature
+                }
+            })
+            .sort((a, b) => a['stop_sequence'] - b['stop_sequence']).concat(['all']);
         stops.forEach((stop, i) => {
             if (stop === 'all') {
                 select(list.nodes()[1])
@@ -422,23 +496,71 @@ export default class TransitMap {
         });
     }
 
+    createCurrentLocationStopElements(features) {
+        this.currentState = 'currentLocationStops';
+        fadeIn(backButton);
+        this.clearList();
+        const agencyFeatures = features.reduce((acc, feature) => {
+            if (feature.getGeometry().getType() === 'Point') {
+                if (acc[feature.get('AGENCY_ID')]) {
+                    acc[feature.get('AGENCY_ID')].push(feature);
+                } else {
+                    acc[feature.get('AGENCY_ID')] = [ feature ];
+                }
+            }
+
+            return acc;
+        }, {});
+        Object.keys(agencyFeatures).map(agencyId => {
+            const features = agencyFeatures[agencyId].sort((a, b) => a.get('STOP_NAME').localeCompare(b.get('STOP_NAME')));
+            features.forEach((feature, i) => {
+                const stopId = feature.get('STOP_ID');
+                const stopName = feature.get('STOP_NAME');
+                const routeId = feature.get('ROUTE_ID')
+                const {
+                    route_short_name: routeShortName, 
+                    route_long_name: routeLongName
+                } = this.transitAccess.execOnAgency(agencyId, `
+                    SELECT route_short_name, route_long_name
+                    FROM routes
+                    WHERE route_id = "${routeId}"
+                    LIMIT 1
+                `)[0];
+                select(list.nodes()[features.length > 30 ? Math.floor(i / (features.length / 2)) : 0])
+                    .append('li')
+                    .append('p')
+                    .style('cursor', 'pointer')
+                    .html(`${stopName}<br>${routeShortName} (${routeLongName})`)
+                    .on('mouseenter', () => this.goToStop(agencyId, stopId))
+                    .on('click', () => {
+                        features.forEach(feature => feature.get('STOP_ID') !== stopId ? feature.setStyle(new Style(null)) : null);
+                        this.createStopTimeElements(agencyId, routeId, stopId)
+                    });
+            })
+            
+        });
+    }
+
     async createStopTimeElements(agencyId, routeId, stopId) {
         this.currentState = 'stopTimes';
         this.goToStop(agencyId, stopId);
         this.clearList();
-        const date = new Date();
         const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-        let stopRealTimesBuf = await localforage.getItem(`${agencyId}_realtime`);
-        let stopRealTimesTimestamp = await localforage.getItem(`${agencyId}_realtime_timestamp`);
-        if (!(stopRealTimesTimestamp && stopRealTimesBuf && stopRealTimesTimestamp + 300000 < date.getTime())) {
-            stopRealTimesBuf = await fetch(`https://api.511.org/transit/tripupdates?api_key=7cf5660e-215b-489d-87b1-78bb3ee006b7&agency=${agencyId}`).then(res => res.arrayBuffer());
-            await localforage.setItem(`${agencyId}_realtime`, stopRealTimesBuf);
-            stopRealTimesTimestamp = date.getTime();
-            await localforage.setItem(`${agencyId}_realtime_timestamp`, stopRealTimesTimestamp);
-        }
-       
-        const stopRealTimes = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(stopRealTimesBuf)).entity;
+        const createElements = async ignoreOtherRoutes => {
+            this.clearList();
+            fadeIn(loading, true);
+
+            const date = new Date();
+
+            let stopRealTimesBuf = await localforage.getItem(`${agencyId}_realtime`);
+            let stopRealTimesTimestamp = await localforage.getItem(`${agencyId}_realtime_timestamp`);
+            if (!(stopRealTimesTimestamp && stopRealTimesBuf && stopRealTimesTimestamp + 300000 > date.getTime())) {
+                stopRealTimesBuf = await fetch(`https://api.511.org/transit/tripupdates?api_key=7cf5660e-215b-489d-87b1-78bb3ee006b7&agency=${agencyId}`).then(res => res.arrayBuffer());
+                await localforage.setItem(`${agencyId}_realtime`, stopRealTimesBuf);
+                stopRealTimesTimestamp = date.getTime();
+                await localforage.setItem(`${agencyId}_realtime_timestamp`, stopRealTimesTimestamp);
+            }
 
         const routeShortName = this.transitAccess.execOnAgency(agencyId, `
             SELECT route_short_name
@@ -507,9 +629,8 @@ export default class TransitMap {
             ORDER BY departure_timestamp 
             LIMIT 30;
         `);
-
-        const createElements = ignoreOtherRoutes => {
-            this.clearList();
+        
+            const stopRealTimes = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(stopRealTimesBuf)).entity;
             const rightColumn = select(list.nodes()[1]);
 
             rightColumn
@@ -558,17 +679,31 @@ export default class TransitMap {
                 try {
                     const updatedTimeEntity = stopRealTimes.find(entity => entity.id === tripId);
                     const updatedTime = updatedTimeEntity ? updatedTimeEntity.tripUpdate.stopTimeUpdate.find(stopTimeUpdate => stopTimeUpdate.stopId === stopId) : null;
+                    const time = updatedTime && updatedTime.departure
+                        ? new Date(updatedTime.departure.time * 1000)
+                        : (
+                            updatedTime && updatedTime.arrival 
+                                ? new Date(updatedTime.arrival.time * 1000)
+                                : new Date('0 ' + departureTime)
+                        );
+
+                    const timeElapsedMinutes = time.getMinutes() - date.getMinutes();
+                    let timeElapsedHours = time.getHours() - date.getHours() - (timeElapsedMinutes < 0 ? 1 : 0);
+                    timeElapsedHours = timeElapsedHours < 0 ? 24 + timeElapsedHours : timeElapsedHours;
+                    
                     select(list.nodes()[0])
                         .append('li')
                         .append('p')
                         // .style('cursor', 'pointer')
-                        .text(`${updatedTime && updatedTime.departure ? new Date(updatedTime.departure.time * 1000).toLocaleTimeString('en-US') : (updatedTime && updatedTime.arrival ? new Date(updatedTime.arrival.time * 1000).toLocaleTimeString('en-US') : new Date('0 ' + departureTime).toLocaleTimeString('en-US'))}${ignoreOtherRoutes ? '' : ` - ${routeShortName} (${stopHeadsign ? stopHeadsign : tripHeadsign})`}`)
+                        .html(`${time.toLocaleTimeString('en-US')}, in ${timeElapsedHours === 0 ? '' : `${timeElapsedHours} hrs, `}${timeElapsedMinutes < 0 ? 60 + timeElapsedMinutes : timeElapsedMinutes} mins${ignoreOtherRoutes ? '' : `<br>${routeShortName} (${stopHeadsign ? stopHeadsign : tripHeadsign})`}`)
                         // .attr('title', routeLongName)
                         .node().dataset['stopTimeData'] = [agencyId, routeId, stopId].join(',');
                 } catch (e) {
                     console.error(e);
                 }
             });
+
+            fadeOut(loading);
         }
 
         createElements(true);
