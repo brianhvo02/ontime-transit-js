@@ -8,14 +8,13 @@ export const fadeOut = function(element) {
 }
 
 export const fadeIn = function(element, container) {
+    element.style('opacity', 1);
+
     if (element.node().tagName === 'UL') {
         element.style('display', 'grid');
-        
     } else {
         element.style('display', container ? 'flex' : 'block');
     }
-   
-    element.style('opacity', 1);
 }
 
 export const fadeInList = function() {

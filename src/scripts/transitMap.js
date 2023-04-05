@@ -7,12 +7,12 @@ import { Feature } from 'ol';
 import { LineString, Point } from 'ol/geom';
 import VectorSource from 'ol/source/Vector';
 import VectorLayer from 'ol/layer/Vector';
-import { fadeIn, fadeInMain, fadeInWelcome, fadeOut, fadeOutList, getLocation } from './domManip';
+import { fadeIn, fadeInList, fadeInMain, fadeInWelcome, fadeOut, fadeOutList, getLocation } from './domManip';
 import Circle from 'ol/style/Circle';
 import Style from 'ol/style/Style';
 import Fill from 'ol/style/Fill';
 import Stroke from 'ol/style/Stroke';
-import { backButton, list, loading, main, map } from './selectors';
+import { backButton, list, loading, main, map, showButton } from './selectors';
 import { select } from 'd3-selection';
 import Timer from './timer';
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
@@ -81,14 +81,17 @@ export default class TransitMap {
         });
 
         this.loaded = false;
+
         this.map.on('movestart', () => {
             backButton.style('pointer-events', 'none');
             list.style('pointer-events', 'none');
         });
+
         this.map.on('moveend', () => {
             backButton.style('pointer-events', 'auto');
             list.style('pointer-events', 'auto');
         });
+
         this.map.on('rendercomplete', () => {
             if (!this.loaded) {
                 this.loaded = true;
@@ -97,10 +100,73 @@ export default class TransitMap {
             }
         });
 
+        this.map.on("click", e => {
+            const features = this.map.getFeaturesAtPixel(e.pixel);
+            if (features.length === 0) return;
+            this.currentState = 'mapClick';
+            this.clearList();
+            
+            features.forEach((feature, i) => {
+                
+                const agencyId = feature.get('AGENCY_ID');
+                const routeId = feature.get('ROUTE_ID');
+                const stopId = feature.get('STOP_ID');
+                const stopName = feature.get('STOP_NAME');
+                const {
+                    route_short_name: routeShortName, 
+                    route_long_name: routeLongName
+                } = this.transitAccess.execOnAgency(agencyId, `
+                    SELECT route_short_name, route_long_name
+                    FROM routes
+                    WHERE route_id = "${routeId}"
+                    LIMIT 1
+                `)[0];
+                const agencyName = this.transitAccess.execOnAgency(agencyId, `
+                    SELECT agency_name 
+                    FROM agency
+                `)[0]['agency_name'];
+
+                if (feature.getGeometry().getType() === 'Point') {
+                    select(list.nodes()[1])
+                        .append('li')
+                        .append('p')
+                        .style('cursor', 'pointer')
+                        .html(`${agencyName}<br>${stopName}<br>${routeShortName} (${routeLongName})`)
+                        .on('click', () => {
+                            Object.values(this.agencyFeatures).flat().forEach(feature => feature.get('ROUTE_ID') !== routeId ? feature.setStyle(new Style(null)) : null);
+                            this.createStopTimeElements(agencyId, routeId, stopId);
+                        });
+                } else {
+                    select(list.nodes()[0])
+                        .append('li')
+                        .append('p')
+                        .style('cursor', 'pointer')
+                        .html(`${agencyName}<br>${routeShortName} (${routeLongName})`)
+                        .on('click', () => {
+                            Object.values(this.agencyFeatures).flat().forEach(feature => feature.get('ROUTE_ID') !== routeId ? feature.setStyle(new Style(null)) : null);
+                            this.createStopElements(agencyId, routeId);
+                        });
+                }
+
+                
+            })
+        });
+
+        window.getRTPos = this.getRTPos;
+
         document.querySelector('.fa-circle-arrow-left').addEventListener('click', this.handleBack.bind(this));
         document.querySelector('.fa-train-subway').addEventListener('click', this.createAgencyElements.bind(this));
         document.querySelector('.fa-location-dot').addEventListener('click', this.goToCurrentLocation.bind(this));
-        document.querySelector('.fa-map-location-dot').addEventListener('click', () => fadeOut(main));
+        document.querySelector('.fa-map-location-dot').addEventListener('click', () => {
+            fadeOut(main);
+            fadeOutList();
+            fadeIn(showButton);
+        });
+        document.querySelector('.fa-eye').addEventListener('click', () => {
+            fadeIn(main);
+            fadeOut(showButton);
+            fadeInList();
+        });
     }
 
     distanceRange(coord, dist = 1) {
@@ -244,9 +310,22 @@ export default class TransitMap {
             this.coords = coords;
         }
 
-        const extent = this.distanceRange([this.coords.longitude, this.coords.latitude])
+        // this.coords = {
+        //     longitude: -122.42036231362748,
+        //     latitude: 37.70772447529237
+        // }
+
+        let value = 1;
+        this.currentPositionExtent = this.distanceRange([this.coords.longitude, this.coords.latitude])
+        let features = Object.values(this.agencyFeatures).flat().filter(feature => containsXY(this.currentPositionExtent, ...feature.getGeometry().getCoordinates()));
+
+        while (features.length > 60) {
+            value -= 0.1;
+            this.currentPositionExtent = this.distanceRange([this.coords.longitude, this.coords.latitude], value);
+            features = Object.values(this.agencyFeatures).flat().filter(feature => containsXY(this.currentPositionExtent, ...feature.getGeometry().getCoordinates()));
+        }
         
-        this.map.getView().fit(extent, {
+        this.map.getView().fit(this.currentPositionExtent, {
             size: this.map.getSize(),
             padding: [50, 50, 50, 50],
             duration: 1000
@@ -275,7 +354,7 @@ export default class TransitMap {
 
         fadeOut(loading);
 
-        const features = Object.values(this.agencyFeatures).flat().filter(feature => containsXY(extent, ...feature.getGeometry().getCoordinates()));
+       
         const styles = features.map(feature => {
             const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
             const style = new Style({
@@ -321,16 +400,14 @@ export default class TransitMap {
                 break;
 
             case 'routes':
+            case 'currentLocationStops':
+            case 'mapClick':
                 this.createAgencyElements();
                 break;
 
             case 'stops':
                 const [stopsAgencyId] = select('.list > li > p').node().dataset['stopData'].split(',');
                 this.createRouteElements(stopsAgencyId);
-                break;
-
-            case 'currentLocationStops':
-                this.createAgencyElements();
                 break;
             
             case 'stopTimes':
@@ -464,13 +541,15 @@ export default class TransitMap {
             .sort((a, b) => a['stop_sequence'] - b['stop_sequence']).concat(['all']);
         stops.forEach((stop, i) => {
             if (stop === 'all') {
+                let flag = true;
                 select(list.nodes()[1])
                     .append('li')
                     .append('p')
                     .style('cursor', 'default')
                     .text('All Stops')
                     .on('mouseenter', () => stops.slice(0, -1).forEach(stop => stop.feature.setStyle(this.style)))
-                    .on('mouseleave', () => stops.slice(0, -1).forEach(stop => stop.feature.setStyle(new Style(null))))
+                    .on('mouseleave', () => stops.slice(0, -1).forEach(stop => flag ? stop.feature.setStyle(new Style(null)) : null))
+                    .on('click', () => flag = !flag)
                 return;
             }
             const {
@@ -500,44 +579,48 @@ export default class TransitMap {
         this.currentState = 'currentLocationStops';
         fadeIn(backButton);
         this.clearList();
-        const agencyFeatures = features.reduce((acc, feature) => {
-            if (feature.getGeometry().getType() === 'Point') {
-                if (acc[feature.get('AGENCY_ID')]) {
-                    acc[feature.get('AGENCY_ID')].push(feature);
-                } else {
-                    acc[feature.get('AGENCY_ID')] = [ feature ];
-                }
-            }
 
-            return acc;
-        }, {});
-        Object.keys(agencyFeatures).map(agencyId => {
-            const features = agencyFeatures[agencyId].sort((a, b) => a.get('STOP_NAME').localeCompare(b.get('STOP_NAME')));
-            features.forEach((feature, i) => {
-                const stopId = feature.get('STOP_ID');
-                const stopName = feature.get('STOP_NAME');
-                const routeId = feature.get('ROUTE_ID')
-                const {
-                    route_short_name: routeShortName, 
-                    route_long_name: routeLongName
-                } = this.transitAccess.execOnAgency(agencyId, `
-                    SELECT route_short_name, route_long_name
-                    FROM routes
-                    WHERE route_id = "${routeId}"
-                    LIMIT 1
-                `)[0];
-                select(list.nodes()[features.length > 30 ? Math.floor(i / (features.length / 2)) : 0])
-                    .append('li')
-                    .append('p')
-                    .style('cursor', 'pointer')
-                    .html(`${stopName}<br>${routeShortName} (${routeLongName})`)
-                    .on('mouseenter', () => this.goToStop(agencyId, stopId))
-                    .on('click', () => {
-                        features.forEach(feature => feature.get('STOP_ID') !== stopId ? feature.setStyle(new Style(null)) : null);
-                        this.createStopTimeElements(agencyId, routeId, stopId)
-                    });
-            })
-            
+        features.sort((a, b) => {
+            const agencyComp = a.get('AGENCY_ID').localeCompare(b.get('AGENCY_ID'));
+            if (agencyComp !== 0) return agencyComp;
+            return a.get('STOP_NAME').localeCompare(b.get('STOP_NAME'));
+        }).forEach((feature, i) => {
+            const agencyId = feature.get('AGENCY_ID');
+            const stopId = feature.get('STOP_ID');
+            const stopName = feature.get('STOP_NAME');
+            const routeId = feature.get('ROUTE_ID')
+            const {
+                route_short_name: routeShortName, 
+                route_long_name: routeLongName
+            } = this.transitAccess.execOnAgency(agencyId, `
+                SELECT route_short_name, route_long_name
+                FROM routes
+                WHERE route_id = "${routeId}"
+                LIMIT 1
+            `)[0];
+
+            const agencyName = this.transitAccess.execOnAgency(agencyId, `
+                SELECT agency_name 
+                FROM agency
+            `)[0]['agency_name'];
+
+            select(list.nodes()[features.length > 30 ? Math.floor(i / (features.length / 2)) : 0])
+                .append('li')
+                .append('p')
+                .style('cursor', 'pointer')
+                .html(`${agencyName}<br>${stopName}<br>${routeShortName} (${routeLongName})`)
+                // .on('mouseenter', () => this.goToStop(agencyId, stopId))
+                // .on('mouseleave', () => {
+                //     this.map.getView().fit(this.currentPositionExtent, {
+                //         size: this.map.getSize(),
+                //         padding: [50, 50, 50, 50],
+                //         duration: 1000
+                //     });
+                // })
+                .on('click', () => {
+                    features.forEach(feature => feature.get('STOP_ID') !== stopId ? feature.setStyle(new Style(null)) : null);
+                    this.createStopTimeElements(agencyId, routeId, stopId)
+                });
         });
     }
 
@@ -547,10 +630,11 @@ export default class TransitMap {
         this.clearList();
         const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-        const createElements = async ignoreOtherRoutes => {
+        const createElements = async (ignoreOtherRoutes, startTomorrow) => {
             this.clearList();
             fadeIn(loading, true);
 
+            // const date = new Date('2023-04-04 11:45:00 PM');
             const date = new Date();
 
             let stopRealTimesBuf = await localforage.getItem(`${agencyId}_realtime`);
@@ -562,73 +646,73 @@ export default class TransitMap {
                 await localforage.setItem(`${agencyId}_realtime_timestamp`, stopRealTimesTimestamp);
             }
 
-        const routeShortName = this.transitAccess.execOnAgency(agencyId, `
-            SELECT route_short_name
-            FROM routes
-            WHERE route_id = "${routeId}"
-            LIMIT 1
-        `)[0]['route_short_name'];
-        
-        const stopTimesFiltered = this.transitAccess.execOnAgency(agencyId, `
-            SELECT time(stop_times.departure_timestamp, 'unixepoch') departure_time, trip_headsign, stop_headsign, trips.trip_id
-            FROM stop_times 
-            JOIN trips ON trips.trip_id = stop_times.trip_id
-            JOIN stops ON stops.stop_id = stop_times.stop_id
-            JOIN routes ON routes.route_id = trips.route_id
-            LEFT OUTER JOIN calendar ON trips.service_id = calendar.service_id
-            WHERE stops.stop_id = "${stopId}"
-                AND routes.route_id = "${routeId}"
-                AND stop_times.departure_timestamp >= ${date.getHours() * 60 * 60 + date.getMinutes() * 60 + date.getSeconds()}
-                AND (
-                    trips.service_id IN (
-                        SELECT service_id
-                        FROM calendar_dates 
-                        WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate()}"
-                            AND exception_type = 1
-                    )
-                    OR (
-                        trips.service_id NOT IN (
+            const routeShortName = this.transitAccess.execOnAgency(agencyId, `
+                SELECT route_short_name
+                FROM routes
+                WHERE route_id = "${routeId}"
+                LIMIT 1
+            `)[0]['route_short_name'];
+            const startTomorrow1 = (date.getMonth() === 1 && date.getDate() === 28) || ([0, 2, 4, 6, 7, 9, 11].includes(date.getMonth()) && date.getDate() === 31) || ([3, 5, 8, 10].includes(date.getMonth()) && date.getDate() === 30);
+            const stopTimesFiltered = this.transitAccess.execOnAgency(agencyId, `
+                SELECT time(stop_times.departure_timestamp, 'unixepoch') departure_time, trip_headsign, stop_headsign, trips.trip_id
+                FROM stop_times 
+                JOIN trips ON trips.trip_id = stop_times.trip_id
+                JOIN stops ON stops.stop_id = stop_times.stop_id
+                JOIN routes ON routes.route_id = trips.route_id
+                LEFT OUTER JOIN calendar ON trips.service_id = calendar.service_id
+                WHERE stops.stop_id = "${stopId}"
+                    AND routes.route_id = "${routeId}"
+                    AND stop_times.departure_timestamp >= ${startTomorrow ? 0 : date.getHours() * 60 * 60 + date.getMinutes() * 60 + date.getSeconds()}
+                    AND (
+                        trips.service_id IN (
                             SELECT service_id
                             FROM calendar_dates 
-                            WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate()}"
-                                AND exception_type = 2
+                            WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + (startTomorrow ? startTomorrow1 ? 1 : date.getDate() + 1 : date.getDate())}"
+                                AND exception_type = 1
                         )
-                        AND ${days[date.getDay()]} = 1
+                        OR (
+                            trips.service_id NOT IN (
+                                SELECT service_id
+                                FROM calendar_dates 
+                                WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + (startTomorrow ? startTomorrow1 ? 1 : date.getDate() + 1 : date.getDate())}"
+                                    AND exception_type = 2
+                            )
+                            AND ${days[date.getDay()]} = 1
+                        )
                     )
-                )
-            ORDER BY departure_timestamp 
-            LIMIT 30;
-        `);
+                ORDER BY departure_timestamp 
+                LIMIT 30;
+            `);
 
-        const stopTimes = this.transitAccess.execOnAgency(agencyId, `
-            SELECT time(stop_times.departure_timestamp, 'unixepoch') departure_time, trip_headsign, stop_headsign, trips.trip_id, routes.route_id, routes.route_short_name
-            FROM stop_times 
-            JOIN trips ON trips.trip_id = stop_times.trip_id
-            JOIN stops ON stops.stop_id = stop_times.stop_id
-            JOIN routes ON routes.route_id = trips.route_id
-            LEFT OUTER JOIN calendar ON trips.service_id = calendar.service_id
-            WHERE stops.stop_id = "${stopId}"
-                AND stop_times.departure_timestamp >= ${date.getHours() * 60 * 60 + date.getMinutes() * 60 + date.getSeconds()}
-                AND (
-                    trips.service_id IN (
-                        SELECT service_id
-                        FROM calendar_dates 
-                        WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate()}"
-                            AND exception_type = 1
-                    )
-                    OR (
-                        trips.service_id NOT IN (
+            const stopTimes = this.transitAccess.execOnAgency(agencyId, `
+                SELECT time(stop_times.departure_timestamp, 'unixepoch') departure_time, trip_headsign, stop_headsign, trips.trip_id, routes.route_id, routes.route_short_name
+                FROM stop_times 
+                JOIN trips ON trips.trip_id = stop_times.trip_id
+                JOIN stops ON stops.stop_id = stop_times.stop_id
+                JOIN routes ON routes.route_id = trips.route_id
+                LEFT OUTER JOIN calendar ON trips.service_id = calendar.service_id
+                WHERE stops.stop_id = "${stopId}"
+                    AND stop_times.departure_timestamp >= ${startTomorrow ? 0 : date.getHours() * 60 * 60 + date.getMinutes() * 60 + date.getSeconds()}
+                    AND (
+                        trips.service_id IN (
                             SELECT service_id
                             FROM calendar_dates 
-                            WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + date.getDate()}"
-                                AND exception_type = 2
+                            WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + (startTomorrow ? startTomorrow1 ? 1 : date.getDate() + 1 : date.getDate())}"
+                                AND exception_type = 1
                         )
-                        AND ${days[date.getDay()]} = 1
+                        OR (
+                            trips.service_id NOT IN (
+                                SELECT service_id
+                                FROM calendar_dates 
+                                WHERE date = "${date.getFullYear() * 1e4 + (date.getMonth() + 1) * 100 + (startTomorrow ? startTomorrow1 ? 1 : date.getDate() + 1 : date.getDate())}"
+                                    AND exception_type = 2
+                            )
+                            AND ${days[date.getDay()]} = 1
+                        )
                     )
-                )
-            ORDER BY departure_timestamp 
-            LIMIT 30;
-        `);
+                ORDER BY departure_timestamp 
+                LIMIT 30;
+            `);
         
             const stopRealTimes = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(stopRealTimesBuf)).entity;
             const rightColumn = select(list.nodes()[1]);
@@ -646,7 +730,15 @@ export default class TransitMap {
                 .style('cursor', 'pointer')
                 .text('See stop times for all routes.')
                 .on('click', () => createElements(false));
-
+                            
+            if ((ignoreOtherRoutes ? stopTimesFiltered : stopTimes).length === 0) {
+                select(list.nodes()[0])
+                    .append('li')
+                    .append('p')
+                    .text('No times available until tomorrow morning. Check tomorrow\'s schedule?')
+                    .on('click', () => createElements(ignoreOtherRoutes, true))
+                    .node().dataset['stopTimeData'] = [agencyId, routeId, stopId].join(',');
+            }
             (ignoreOtherRoutes ? stopTimesFiltered : stopTimes).forEach((stopTime, i) => {
                 const {
                     departure_time: departureTime,
@@ -676,36 +768,54 @@ export default class TransitMap {
                     feature.setStyle(style);
                 }
 
-                try {
-                    const updatedTimeEntity = stopRealTimes.find(entity => entity.id === tripId);
-                    const updatedTime = updatedTimeEntity ? updatedTimeEntity.tripUpdate.stopTimeUpdate.find(stopTimeUpdate => stopTimeUpdate.stopId === stopId) : null;
-                    const time = updatedTime && updatedTime.departure
-                        ? new Date(updatedTime.departure.time * 1000)
-                        : (
-                            updatedTime && updatedTime.arrival 
-                                ? new Date(updatedTime.arrival.time * 1000)
-                                : new Date('0 ' + departureTime)
-                        );
+                const updatedTimeEntity = stopRealTimes.find(entity => entity.id === tripId);
+                const updatedTime = updatedTimeEntity ? updatedTimeEntity.tripUpdate.stopTimeUpdate.find(stopTimeUpdate => stopTimeUpdate.stopId === stopId) : null;
+                const time = updatedTime && updatedTime.departure
+                    ? new Date(updatedTime.departure.time * 1000)
+                    : (
+                        updatedTime && updatedTime.arrival 
+                            ? new Date(updatedTime.arrival.time * 1000)
+                            : new Date('0 ' + departureTime)
+                    );
 
-                    const timeElapsedMinutes = time.getMinutes() - date.getMinutes();
-                    let timeElapsedHours = time.getHours() - date.getHours() - (timeElapsedMinutes < 0 ? 1 : 0);
-                    timeElapsedHours = timeElapsedHours < 0 ? 24 + timeElapsedHours : timeElapsedHours;
-                    
-                    select(list.nodes()[0])
-                        .append('li')
-                        .append('p')
-                        // .style('cursor', 'pointer')
-                        .html(`${time.toLocaleTimeString('en-US')}, in ${timeElapsedHours === 0 ? '' : `${timeElapsedHours} hrs, `}${timeElapsedMinutes < 0 ? 60 + timeElapsedMinutes : timeElapsedMinutes} mins${ignoreOtherRoutes ? '' : `<br>${routeShortName} (${stopHeadsign ? stopHeadsign : tripHeadsign})`}`)
-                        // .attr('title', routeLongName)
-                        .node().dataset['stopTimeData'] = [agencyId, routeId, stopId].join(',');
-                } catch (e) {
-                    console.error(e);
-                }
+                const timeElapsedMinutes = time.getMinutes() - date.getMinutes();
+                let timeElapsedHours = time.getHours() - date.getHours() - (timeElapsedMinutes < 0 ? 1 : 0);
+                timeElapsedHours = timeElapsedHours < 0 ? 24 + timeElapsedHours : timeElapsedHours;
+                
+                select(list.nodes()[0])
+                    .append('li')
+                    .append('p')
+                    // .style('cursor', 'pointer')
+                    .html(`${time.toLocaleTimeString('en-US')}, in ${timeElapsedHours === 0 ? '' : `${timeElapsedHours} hrs, `}${timeElapsedMinutes < 0 ? 60 + timeElapsedMinutes : timeElapsedMinutes} mins${ignoreOtherRoutes ? '' : `<br>${routeShortName} (${stopHeadsign ? stopHeadsign : tripHeadsign})`}`)
+                    // .attr('title', routeLongName)
+                    .node().dataset['stopTimeData'] = [agencyId, routeId, stopId].join(',');
             });
 
             fadeOut(loading);
         }
 
         createElements(true);
+    }
+
+    async getRTPos() {
+        const agencyId = 'SC';
+        const date = new Date();
+        let stopRealPosBuf = await localforage.getItem(`${agencyId}_realtime_positions`);
+        let stopRealPosTimestamp = await localforage.getItem(`${agencyId}_realtime_positions_timestamp`);
+        if (!(stopRealPosTimestamp && stopRealPosBuf && stopRealPosTimestamp + 300000 > date.getTime())) {
+            stopRealPosBuf = await fetch(`https://api.511.org/transit/vehiclepositions?api_key=7cf5660e-215b-489d-87b1-78bb3ee006b7&agency=${agencyId}`).then(res => res.arrayBuffer());
+            await localforage.setItem(`${agencyId}_realtime`, stopRealPosBuf);
+            stopRealPosTimestamp = date.getTime();
+            await localforage.setItem(`${agencyId}_realtime_timestamp`, stopRealPosTimestamp);
+        }
+
+        const stopRealPositions = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(stopRealPosBuf)).entity;
+        const tripVehicles = [];
+        const nonTripVehicles = [];
+        stopRealPositions.forEach(pos => pos.tripUpdate ? tripVehicles.push(pos) : nonTripVehicles.push(pos));
+        console.log(tripVehicles)
+        console.log(nonTripVehicles)
+        // const updatedTimeEntity = stopRealTimes.find(entity => entity.id === tripId);
+        // const updatedTime = updatedTimeEntity ? updatedTimeEntity.tripUpdate.stopTimeUpdate.find(stopTimeUpdate => stopTimeUpdate.stopId === stopId) : null;
     }
 }

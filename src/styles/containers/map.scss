@@ -9,3 +9,20 @@
     
     opacity: 0;
 }
+
+.fa-eye {
+    top: 0;
+    right: 0;
+    position: absolute;
+    padding: 20px;
+    
+    margin: 20px;
+    font-size: 25px;
+
+    cursor: pointer;
+
+    opacity: 0;
+    transition: 0.5s;
+        
+    float: right;
+}
