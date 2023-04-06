@@ -5,7 +5,7 @@
     grid-auto-flow: column;
     grid-auto-columns: auto;
     // grid-template-columns: repeat(auto-fill,minmax(160px, 1fr));
-    top: 10%;
+    top: 12%;
     height: 80%;
     width: 600px;
     margin-top: 2%;
@@ -23,7 +23,7 @@
         text-align: center;
         margin: 5px 0;
         p {
-            display: inline;
+            display: block;
         }
     }
 }

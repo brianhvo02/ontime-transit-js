@@ -8,14 +8,13 @@ export const fadeOut = function(element) {
 }
 
 export const fadeIn = function(element, container) {
+    element.style('opacity', 1);
+
     if (element.node().tagName === 'UL') {
         element.style('display', 'grid');
-        
     } else {
         element.style('display', container ? 'flex' : 'block');
     }
-   
-    element.style('opacity', 1);
 }
 
 export const fadeInList = function() {
@@ -47,13 +46,12 @@ export const fadeInMain = function(transitMap) {
 }
 
 export const fadeInWelcome = function() {
-    loading.style('opacity', 0);
-    loading.style('z-index', 0);
+    fadeOut(loading);
+    fadeOut(main);
 
-    welcome.style('opacity', 1);
-    welcome.style('z-index', 1);
+    fadeIn(welcome, true);
 }
 
 export const getLocation = async () => {
-    return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true }));
+    return new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject));
 }

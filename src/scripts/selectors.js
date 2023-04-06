@@ -19,6 +19,10 @@ export const headerButtons = selectAll('.side-buttons');
 export const mapToggle = select('.fa-map-location-dot');
 export const locationToggle = select('.fa-location-dot');
 export const backButton = select('.fa-circle-arrow-left');
+export const showButton = select('.fa-eye');
+export const pauseAlerts = select('fa-pause');
+export const banner = select('.banner-content');
+
 
 // Footer
 
