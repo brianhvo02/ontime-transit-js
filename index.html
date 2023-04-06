@@ -1,10 +1,18 @@
 <!DOCTYPE html>
 <html lang="en">
-
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+        <link rel="apple-touch-icon" sizes="180x180" href="./assets/apple-touch-icon.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="./assets/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="./assets/favicon-16x16.png">
+        <link rel="manifest" href="./assets/site.webmanifest">
+        <link rel="mask-icon" href="./assets/safari-pinned-tab.svg" color="#5bbad5">
+        <link rel="shortcut icon" href="./assets/favicon.ico">
+        <meta name="msapplication-TileColor" content="#da532c">
+        <meta name="msapplication-config" content="./assets/browserconfig.xml">
+        <meta name="theme-color" content="#ffffff">
         <script defer src="./assets/fontawesome/js/solid.min.js"></script>
         <script defer src="./assets/fontawesome/js/fontawesome.min.js"></script>
         <link rel="stylesheet" href="./dist/main.css" />
@@ -26,10 +34,12 @@
                     <h2>Bay Area Transit Data Visualizer</h2>
                 </div>
                 <div class="header-right side-buttons">
+                    <i class="fa-solid fa-pause"></i>
                     <i class="fa-solid fa-location-dot"></i>
                     <i class="fa-solid fa-map-location-dot"></i>
                 </div>
             </header>
+            <canvas class="banner"></canvas>
             <ul class="list"></ul>
             <ul class="list list-right"></ul>
             <footer>
@@ -38,9 +48,7 @@
             </footer>
         </div>
         <div class="loading-container">
-            <div class="loading">
-                <h1>Loading</h1>
-                <!-- <i class="fas fa-train-subway"></i> -->
+            <h1>Loading</h1>
                 <div style="width:100%;height:0;padding-bottom:100%;position:relative;">
                     <iframe src="https://giphy.com/embed/5n7V4LYrjT8YDrBck1" width="200%" height="200%" style="position:absolute" frameBorder="0" class="giphy-embed" allowFullScreen></iframe>
                 </div>
@@ -48,7 +56,6 @@
                     <a href="https://giphy.com/gifs/5n7V4LYrjT8YDrBck1">via GIPHY</a>
                 </p>
             </div>
-        </div>
         <div class="error-container">
             <div class="error">
                 <h1>Oh, no! Something went wrong.</h1>

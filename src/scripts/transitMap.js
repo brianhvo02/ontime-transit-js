@@ -12,18 +12,30 @@ import Circle from 'ol/style/Circle';
 import Style from 'ol/style/Style';
 import Fill from 'ol/style/Fill';
 import Stroke from 'ol/style/Stroke';
-import { backButton, list, loading, main, map, showButton } from './selectors';
+import { backButton, banner, list, loading, main, map, showButton } from './selectors';
 import { select } from 'd3-selection';
 import Timer from './timer';
 import GtfsRealtimeBindings from "gtfs-realtime-bindings";
 import localforage from 'localforage';
-import { containsXY } from 'ol/extent';
+import { containsXY, createEmpty, extend } from 'ol/extent';
+import Icon from 'ol/style/Icon';
+import GeoJSON from 'ol/format/GeoJSON';
 
 export default class TransitMap {
+    layersRT = {};
+    featuresRT = {};
+    loaded = false;
+    currentSelection = {
+        agencyId: null,
+        routeId: null,
+        stopId: null
+    }
+    currentState = 'agencies';
+
     constructor(access) {
-        this.transitAccess = access;
         useGeographic();
 
+        this.transitAccess = access;
         this.style = new Style({
             stroke: new Stroke({
                 color: 'rgba(255, 255, 255, 0.7)',
@@ -39,12 +51,48 @@ export default class TransitMap {
                     color: 'rgba(211, 211, 211, 0.8)'
                 }),
                 stroke: new Stroke({
-                    color: [211, 211, 211], 
+                    color: 'rgba(211, 211, 211, 0.8)', 
                     width: 2
                 })
             })
         });
 
+        this.agencyMap = Object.fromEntries(this.transitAccess.execOnAll(`
+            SELECT agency_id, agency_name
+            FROM agency
+        `).map(({agency_id, agency_name}) => [agency_id, agency_name]));
+
+        window.agencyMap = this.agencyMap
+
+        document.querySelector('.fa-pause').addEventListener('click', () => {
+            if (this.alertsPaused) {
+                this.animateBanner();
+                this.alertsPaused = false;
+            } else {
+                cancelAnimationFrame(this.animation);
+                this.alertsPaused = true;
+            }
+        });
+        document.querySelector('.fa-circle-arrow-left').addEventListener('click', this.handleBack.bind(this));
+        document.querySelector('.fa-train-subway').addEventListener('click', this.createAgencyElements.bind(this));
+        document.querySelector('.fa-location-dot').addEventListener('click', this.goToCurrentLocation.bind(this));
+        document.querySelector('.fa-map-location-dot').addEventListener('click', () => {
+            fadeOut(main);
+            fadeOutList();
+            fadeIn(showButton);
+        });
+        document.querySelector('.fa-eye').addEventListener('click', () => {
+            fadeIn(main);
+            fadeOut(showButton);
+            fadeInList();
+        });
+
+        
+
+        this.instance = this.initialize();
+    }
+
+    async initialize() {
         const tile = new TileLayer({
             preload: Infinity,
             source: new OSM()
@@ -63,15 +111,56 @@ export default class TransitMap {
             }
         });
 
-        this.source = new VectorSource();
-        const vector = new VectorLayer({ source: this.source });
+        this.layers = Object.fromEntries(
+            await Promise.all(
+                this.transitAccess.agencies.map(async agency => {
+                    try {
+                        const geojson = await fetch(`https://brianhvo02.github.io/ontime-transit-feeds/geojson/${agency['Id']}/${agency['Id']}.geojson`).then(res => res.json());
+                        return [agency['Id'], new VectorLayer({
+                            source: new VectorSource({
+                                features: new GeoJSON().readFeatures(geojson).map(feature => {
+                                    feature.setStyle(
+                                        feature.getGeometry().getType() === 'LineString' ? new Style(
+                                            {
+                                                stroke: new Stroke({
+                                                    color: feature.get('route_color') && feature.get('route_color').length === 7 ? feature.get('route_color') : 'rgba(255, 255, 255, 0.8)',
+                                                    width: 2
+                                                }),
+                                                fill: new Fill({
+                                                    color: feature.get('route_color') && feature.get('route_color').length === 7 ? feature.get('route_color') : 'rgba(255, 255, 255, 0.8)',
+                                                    width: 2
+                                                }),
+                                                image: new Circle({
+                                                    radius: 2,
+                                                    fill: new Fill({
+                                                        color: 'rgba(211, 211, 211, 0.7)'
+                                                    }),
+                                                    stroke: new Stroke({
+                                                        color: 'rgba(211, 211, 211, 0.7)', 
+                                                        width: 2
+                                                    })
+                                                })
+                                            }
+                                        ) : new Style(null)
+                                    );
+                                    return feature;
+                                })
+                            })
+                        })];
+                    } catch (e) {
+                        console.error(e);
+                        return null;
+                    }
+                })
+            )
+        );
 
         this.map = new Map({
             target: 'map',
             loadTilesWhileAnimating: true,
             layers: [
                 tile,
-                vector
+                ...Object.values(this.layers)
             ],
             view: new View({
                 center: [-122.2711639, 37.9743514],
@@ -79,8 +168,6 @@ export default class TransitMap {
             }),
             controls: []
         });
-
-        this.loaded = false;
 
         this.map.on('movestart', () => {
             backButton.style('pointer-events', 'none');
@@ -102,71 +189,134 @@ export default class TransitMap {
 
         this.map.on("click", e => {
             const features = this.map.getFeaturesAtPixel(e.pixel);
-            if (features.length === 0) return;
+            if (features.length === 0) {
+                if (this.currentState === 'agencies') {
+                    this.animateTopLayer();
+                } else {
+                    const { agencyId, routeId, stopId } = this.currentSelection;
+                    if (this.currentState === 'routes') {
+                        this.goToFeature(this.getAgency(agencyId).getSource().getExtent())
+                    } else {
+                        if (this.currentState === 'stopTimes') {
+                            this.goToFeature(this.distanceRange(this.getStop(agencyId, routeId, stopId).getGeometry().getExtent()));
+                        } else {
+                            this.goToFeature(this.getRoute(agencyId, routeId).getGeometry().getExtent());
+                        }
+                    }
+                }
+                return;
+            };
+
             this.currentState = 'mapClick';
             this.clearList();
             
-            features.forEach((feature, i) => {
-                
-                const agencyId = feature.get('AGENCY_ID');
-                const routeId = feature.get('ROUTE_ID');
-                const stopId = feature.get('STOP_ID');
-                const stopName = feature.get('STOP_NAME');
-                const {
-                    route_short_name: routeShortName, 
-                    route_long_name: routeLongName
-                } = this.transitAccess.execOnAgency(agencyId, `
-                    SELECT route_short_name, route_long_name
-                    FROM routes
-                    WHERE route_id = "${routeId}"
-                    LIMIT 1
-                `)[0];
-                const agencyName = this.transitAccess.execOnAgency(agencyId, `
-                    SELECT agency_name 
-                    FROM agency
-                `)[0]['agency_name'];
+            features.forEach(feature => {
+                const agencyId = feature.get('agency_id');
+                const agencyName = feature.get('agency_name');
+                const routeId = feature.get('route_id');
+                const tripId = feature.get('trip_id');
+                const stopId = feature.get('stop_id');
+                const stopName = feature.get('stop_name');
+                const routeShortName = feature.get('route_short_name');
+                const routeLongName = feature.get('route_long_name');
+                console.log(agencyId, agencyName, routeId, tripId, stopId, stopName, routeShortName, routeLongName)
 
                 if (feature.getGeometry().getType() === 'Point') {
-                    select(list.nodes()[1])
-                        .append('li')
-                        .append('p')
-                        .style('cursor', 'pointer')
-                        .html(`${agencyName}<br>${stopName}<br>${routeShortName} (${routeLongName})`)
-                        .on('click', () => {
-                            Object.values(this.agencyFeatures).flat().forEach(feature => feature.get('ROUTE_ID') !== routeId ? feature.setStyle(new Style(null)) : null);
-                            this.createStopTimeElements(agencyId, routeId, stopId);
-                        });
+                    if (tripId) {
+                        select(list.nodes()[1])
+                            .append('li')
+                            .append('p')
+                            .style('cursor', 'pointer')
+                            .html(`${agencyName}<br>Going to ${stopName}<br>${routeShortName} (${routeLongName})`)
+                            .on('click', () => {
+                                this.getFeatures().forEach(feature => feature.get('route_id') === routeId || feature.setStyle(new Style(null)));
+                                this.currentSelection = { agencyId, routeId, stopId };
+                                this.createStopTimeElements();
+                            })
+                    } else {
+                        this.currentSelection = { agencyId, routeId, stopId };
+                        select(list.nodes()[1])
+                            .append('li')
+                            .append('p')
+                            .style('cursor', 'pointer')
+                            .html(`${agencyName}<br>${stopName}<br>${routeShortName} (${routeLongName})`)
+                            .on('click', () => {
+                                this.getFeatures().forEach(feature => feature.get('route_id') === routeId || feature.setStyle(new Style(null)));
+                                this.currentSelection = { agencyId, routeId, stopId };
+                                this.createStopTimeElements();
+                            })
+                    }
                 } else {
+                    this.currentSelection = { agencyId, routeId, stopId };
                     select(list.nodes()[0])
                         .append('li')
                         .append('p')
                         .style('cursor', 'pointer')
                         .html(`${agencyName}<br>${routeShortName} (${routeLongName})`)
                         .on('click', () => {
-                            Object.values(this.agencyFeatures).flat().forEach(feature => feature.get('ROUTE_ID') !== routeId ? feature.setStyle(new Style(null)) : null);
+                            this.getFeatures().forEach(feature => feature.get('route_id') === routeId || feature.setStyle(new Style(null)));
                             this.createStopElements(agencyId, routeId);
-                        });
+                        })
                 }
-
-                
             })
         });
+        window.getFeatures = this.getFeatures.bind(this);
+        return this;
+    }
 
-        window.getRTPos = this.getRTPos;
+    getLayers() {
+        return Object.values(this.layers);
+    }
 
-        document.querySelector('.fa-circle-arrow-left').addEventListener('click', this.handleBack.bind(this));
-        document.querySelector('.fa-train-subway').addEventListener('click', this.createAgencyElements.bind(this));
-        document.querySelector('.fa-location-dot').addEventListener('click', this.goToCurrentLocation.bind(this));
-        document.querySelector('.fa-map-location-dot').addEventListener('click', () => {
-            fadeOut(main);
-            fadeOutList();
-            fadeIn(showButton);
-        });
-        document.querySelector('.fa-eye').addEventListener('click', () => {
-            fadeIn(main);
-            fadeOut(showButton);
-            fadeInList();
-        });
+    getAgencies() {
+        return Object.keys(this.layers);
+    }
+
+    getAgency(agencyId) {
+        return this.layers[agencyId];
+    }
+
+    getFeatures() {
+        return Object.values(this.layers).map(layer => layer.getSource().getFeatures()).flat();
+    }
+
+    getRoutes(agencyId) {
+        return this.getFeatures().filter(feature => 
+            feature.getGeometry().getType() === 'LineString'
+                && feature.get('agency_id') === agencyId
+        );
+    }
+
+    getRoute(agencyId, routeId) {
+        return this.getFeatures().filter(feature => 
+            feature.getGeometry().getType() === 'LineString'
+                && feature.get('agency_id') === agencyId
+                && feature.get('route_id') === routeId
+        );
+    }
+
+    routes(agencyId) {
+        return this.transitAccess.execOnAgency(agencyId, `
+            SELECT route_id, route_short_name, route_long_name, route_color
+            FROM routes ORDER BY route_id
+        `);
+    }
+
+    getStops(agencyId, routeId) {
+        return this.getFeatures().filter(feature => 
+            feature.getGeometry().getType() === 'Point' 
+                && feature.get('agency_name') === this.agencyMap[agencyId]
+                && feature.get('routes').find(route => route['route_id'] === routeId) 
+        );
+    }
+
+    getStop(agencyId, routeId, stopId) {
+        return this.getFeatures().find(feature => 
+            feature.getGeometry().getType() === 'Point' 
+                && feature.get('agency_name') === this.agencyMap[agencyId]
+                && feature.get('routes').find(route => route['route_id'] === routeId) 
+                && feature.get('stop_id') === stopId
+        );
     }
 
     distanceRange(coord, dist = 1) {
@@ -176,129 +326,165 @@ export default class TransitMap {
         return [lon - lonDist, lat - latDist, lon + lonDist, lat + latDist];
     }
 
-    addFeatures(entry) {
-        const [className, features] = entry;
-        const source = new VectorSource({ features });
-        const layer = new VectorLayer({ 
-            className, 
-            source, 
-            style: feature => {
-                // if (feature.getGeometry().getType() === 'Point') console.log(feature.get('COLOR'));
-                const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
-                this.style.getStroke().setColor(color);
-                return this.style;
-            }
-        });
-
-        this.layers[className] = layer;
-        this.map.addLayer(layer);
-    }
-
-    drawMap() {
-        const drawTimer = new Timer('draw map');
-        console.log('Starting draw calculations.');
-
-        this.agencyFeatures = Object.fromEntries(this.transitAccess.agencies.map(agency => [`agency_${agency['Id']}`, new Array()]));
-
-        const routes = this.transitAccess.execOnAll('SELECT * FROM routes');
-        routes.forEach(route => {
-            // try {
-                const line = this.transitAccess.execOnAgency(route['agency_id'], `
-                    SELECT shape_id, shape_pt_lon, shape_pt_lat
-                    FROM shapes
-                    WHERE shape_id = (
-                        SELECT shape_id
-                        FROM (
-                            SELECT shape_id, MAX(shape_count)
-                            FROM (
-                                SELECT shape_id, COUNT(*) AS shape_count
-                                FROM shapes 
-                                WHERE shape_id IN (
-                                    SELECT shape_id
-                                    FROM trips
-                                    WHERE route_id = "${route['route_id']}"
-                                ) GROUP BY shape_id
-                            )
-                        )
-                    )
-                    ORDER BY shape_pt_sequence;
-                `);
-
-                if (line.length === 0) return;
-
-                const linePoints = line.map(coordinates => [ coordinates['shape_pt_lon'], coordinates['shape_pt_lat'] ]);
-                const lineFeature = new Feature(new LineString(linePoints));
-                lineFeature.set('COLOR', `#${route['route_color']}`);
-                lineFeature.set('AGENCY_ID', route['agency_id']);
-                lineFeature.set('ROUTE_ID', route['route_id']);
-                lineFeature.set('SHORT_NAME', route['route_short_name']);
-                lineFeature.set('LONG_NAME', route['route_long_name']);
-                const stops = this.transitAccess.execOnAgency(route['agency_id'], `
-                    SELECT stops.stop_id, stop_name, stop_lon, stop_lat, stop_sequence
-                    FROM stop_times
-                    JOIN stops ON stops.stop_id = stop_times.stop_id
-                    WHERE trip_id = (
-                        SELECT trip_id
-                            FROM trips
-                            WHERE shape_id = "${line[0]['shape_id']}"
-                            LIMIT 1
-                    )
-                    ORDER BY stop_sequence
-                `);
-
-                const stopFeatures = stops.map(stop => {
-                    const stopPoint = [ stop['stop_lon'], stop['stop_lat'] ];
-                    const stopFeature = new Feature(new Point(stopPoint));
-                    stopFeature.set('COLOR', `#FFFFFF`);
-                    stopFeature.set('AGENCY_ID', route['agency_id']);
-                    stopFeature.set('ROUTE_ID', route['route_id']);
-                    stopFeature.set('STOP_ID', stop['stop_id']);
-                    stopFeature.set('STOP_NAME', stop['stop_name']);
-                    stopFeature.set('STOP_SEQUENCE', stop['stop_sequence']);
-                    stopFeature.setStyle(new Style(null));
-                    return stopFeature;
-                });
-
-                this.agencyFeatures[`agency_${route['agency_id']}`].push(lineFeature, ...stopFeatures);
-//             } catch(e) {
-//                 console.error(`Route threw an error!
-// Agency: ${route['agency_id']}
-// Route: ${route['route_id']}`, e.toString());
-//             }
-        });
-
-        this.layers = Object.fromEntries(this.transitAccess.agencies.map(agency => [`agency_${agency['Id']}`, null]));
-        Object.entries(this.agencyFeatures).forEach(this.addFeatures.bind(this));
-
-        drawTimer.stop();
-    }
-
     setLayerVisible(agency_id, bool) {
-        this.layers[`agency_${agency_id}`].setVisible(bool);
+        this.layers[agency_id].setVisible(bool);
     }
 
-    goToLayer(agency_id) {
-        this.map.getView().fit(this.layers[`agency_${agency_id}`].getSource().getExtent(), {
+    goToFeature(extent) {
+        this.map.getView().fit(extent, {
             size: this.map.getSize(),
             padding: [50, 50, 50, 50],
             duration: 1000
         });
     }
 
-    goToLine(agency_id, route_id) {
-        this.map.getView().fit(this.agencyFeatures[`agency_${agency_id}`].find(feature => feature.get('ROUTE_ID') === route_id).getGeometry().getExtent(), {
-            size: this.map.getSize(),
-            padding: [50, 50, 50, 50],
-            duration: 1000
-        });
-    }
-
-    goToStop(agency_id, stop_id) {
+    animateTopLayer() {
         this.map.getView().animate({
-            center: this.agencyFeatures[`agency_${agency_id}`].find(feature => feature.get('STOP_ID') === stop_id).getGeometry().getCoordinates(),
-            zoom: 16,
+            center: [-122.2711639, 37.9743514],
+            zoom: 9.5,
             duration: 1000
-        })
+        });
+    }
+
+    async getBuffer(key, endpoint) {
+        let buffer = await localforage.getItem(key);
+        let timestamp = await localforage.getItem(`${key}_timestamp`);
+        if (!(buffer && timestamp && timestamp + 300000 > new Date().getTime())) {
+            buffer = await fetch(`https://api.511.org/transit/${endpoint}?api_key=7cf5660e-215b-489d-87b1-78bb3ee006b7${key === 'service_alerts' ? '' : `&agency=${key.slice(0, key.indexOf('_'))}`}`).then(res => res.arrayBuffer());
+            await localforage.setItem(key, buffer);
+            timestamp = new Date().getTime();
+            await localforage.setItem(`${key}_timestamp`, timestamp);
+        }
+
+        return buffer;
+    }
+
+    async getRTPos(agencyId) {
+        if (this.layersRT && this.layersRT[agencyId]) this.layersRT[agencyId].dispose();
+
+        const buffer = await this.getBuffer(`${agencyId}_realtime_positions`, 'vehiclepositions');
+        const stopRTPositions = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer)).entity;
+        const features = stopRTPositions.map(stopRTPosition => {
+            const { longitude, latitude, speed, bearing } = stopRTPosition.vehicle.position;
+            const stopId = stopRTPosition.vehicle.stopId;
+            const feature = new Feature(new Point([longitude, latitude]));
+            feature.setStyle(new Style({
+                image: bearing ? new Icon({
+                    src: 'assets/arrow.png',
+                    color: stopRTPosition.vehicle.trip ? `rgba(50, 205, 50, 0.8)` : `rgba(200, 8, 21, 0.8)`,
+                    scale: 0.01,
+                    rotation: bearing * Math.PI / 180
+                }) : new Circle({
+                    radius: 2,
+                    fill: new Fill({
+                        color: stopRTPosition.vehicle.trip ? `rgba(50, 205, 50, 0.8)` : `rgba(200, 8, 21, 0.8)`
+                    }),
+                    stroke: new Stroke({
+                        color: stopRTPosition.vehicle.trip ? `rgba(50, 205, 50, 0.8)` : `rgba(200, 8, 21, 0.8)`,
+                        width: 2
+                    })
+                })
+            }));
+
+            feature.set('agency_id', agencyId);
+            if (stopId) {
+                feature.set('stop_id', stopId);
+                feature.set('stop_name', this.transitAccess.execOnAgency(agencyId, `SELECT stop_name FROM stops WHERE stop_id = "${stopId}"`)[0]['stop_name']);
+            }
+            feature.set('vehicle_color', stopRTPosition.vehicle.trip ? `rgba(50, 205, 50, 0.8)` : `rgba(200, 8, 21, 0.8)`);
+            feature.set('vehicle_speed', speed);
+
+            if (stopRTPosition.vehicle.trip) {
+                console.log(stopRTPosition)
+                const { tripId, routeId } = stopRTPosition.vehicle.trip;
+                feature.set('trip_id', tripId);
+                const { route_short_name, route_long_name } = this.transitAccess.execOnAgency(agencyId, `SELECT route_short_name, route_long_name FROM routes WHERE route_id = "${routeId}"`)[0];
+                feature.set('route_short_name', route_short_name);
+                feature.set('route_long_name', route_long_name);
+                feature.set('route_id', routeId);
+            }
+
+            return feature;
+        });
+
+        const layerRT = new VectorLayer({
+            source: new VectorSource({
+                features
+            })
+        });
+
+        this.layersRT[agencyId] = layerRT;
+        this.featuresRT[agencyId] = features;
+        this.map.addLayer(layerRT);
+    }
+
+    async getServiceAlerts() {
+        const buffer = await this.getBuffer('service_alerts', 'servicealerts');
+        const serviceAlerts = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer)).entity;
+        const alerts = serviceAlerts.map(({alert}) => 
+            `${agencyMap[alert.informedEntity[0].agencyId] || alert.informedEntity[0].agencyId}: ${alert.headerText.translation[0].text
+                .replace(/\s+/g, ' ')}${alert.descriptionText ? ' - ' : ''}${alert.descriptionText.translation[0].text.replace(/\s+/g, ' ')}`
+            ).join('\t\t');
+
+        const canvas = document.querySelector('.banner');
+        canvas.width = innerWidth;
+        canvas.height = 25;
+        const ctx = canvas.getContext('2d');
+        let currentWidth = innerWidth;
+
+        this.animateBanner = () => {
+            this.animation = requestAnimationFrame(this.animateBanner);
+            const blankCanvas = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB9IAAAAyCAYAAAAA5pBDAAAAAXNSR0IArs4c6QAAB1ZJREFUeF7t2zERADEMA8GEP+l0/1cIwhrCznUa3+MIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgACBT+CyIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBH4BQ7oaCBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIBABAzpciBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAoZ0DRAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAgS3gI10ZBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIEAgAoZ0ORAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAUO6BggQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAwBbwka4MAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECAQAUO6HAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAgCFdAwQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAYAv4SFcGAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBCIgCFdDgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAwJCuAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgsAV8pCuDAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAhEwJAuBwIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgYEjXAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQ2AI+0pVBgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQiYEiXAwECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQMKRrgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIbAEf6cogQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIRMKTLgQABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIGNI1QIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIEtoCPdGUQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAIEIGNLlQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIEDOkaIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECW8BHujIIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgEAEDOlyIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAEChnQNECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgACBLeAjXRkECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQCAChnQ5ECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABQ7oGCBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIDAFvCRrgwCBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIBABQ7ocCBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQICAIV0DBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIEBgC/hIVwYBAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIEIiAIV0OBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgQIEDAkK4BAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECCwBXykK4MAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECETAkC4HAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBgSNcAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBDYAj7SlUGAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBCJgSJcDAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAwpGuAAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAhsAR/pyiBAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAhEwpMuBAAECBAgQIECAAAECBAgQIECAAAECBAgQIECAAAECBAgY0jVAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgS2gI90ZRAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAgQgY0uVAgAABAgQIECBAgAABAgQIECBAgAABAgQIECBAgAABAgQM6RogQIAAAQIECBAgQIAAAQIECBAgQIAAAQIECBAgQIAAAQJb4AH2RAAz8oAOxAAAAABJRU5ErkJggg=='
+            canvas.width = innerWidth;
+            ctx.font = "15px Roboto";
+            ctx.fillStyle = '#F0F4F8';
+            currentWidth -= 3;
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            ctx.fillText(alerts, currentWidth, 17);
+            if (canvas.toDataURL() === blankCanvas) {
+                currentWidth = innerWidth;
+            }
+        }
+        
+        this.animateBanner();
+    }
+
+    resetMap(currentLocation) {
+        this.getFeatures().forEach(feature => {
+            feature.setStyle(
+                new Style({
+                    stroke: new Stroke({
+                        color: feature.get('route_color') || this.style.getStroke().getColor(),
+                        width: 2
+                    })
+                })
+            )
+        });
+
+        this.getLayers().forEach(layer => layer.setVisible(true));
+        Object.values(this.layersRT).flat().forEach(layer => layer.setVisible(false));
+
+        if (!currentLocation) this.animateTopLayer();
+    }
+
+    clearList() {
+        list.nodes().forEach(el => Array.from(el.children).forEach(child => child.remove()));
+    }
+
+    handleBack() {
+        switch (this.currentState) {
+            case 'routes':
+            case 'currentLocationStops':
+            case 'mapClick':
+                this.createAgencyElements();
+                break;
+            case 'stops':
+                this.createRouteElements();
+                break;
+            case 'stopTimes':
+                this.createStopElements();
+                break;
+        }
     }
 
     async goToCurrentLocation() {
@@ -310,11 +496,6 @@ export default class TransitMap {
             this.coords = coords;
         }
 
-        // this.coords = {
-        //     longitude: -122.42036231362748,
-        //     latitude: 37.70772447529237
-        // }
-
         let value = 1;
         this.currentPositionExtent = this.distanceRange([this.coords.longitude, this.coords.latitude])
         let features = Object.values(this.agencyFeatures).flat().filter(feature => containsXY(this.currentPositionExtent, ...feature.getGeometry().getCoordinates()));
@@ -325,11 +506,7 @@ export default class TransitMap {
             features = Object.values(this.agencyFeatures).flat().filter(feature => containsXY(this.currentPositionExtent, ...feature.getGeometry().getCoordinates()));
         }
         
-        this.map.getView().fit(this.currentPositionExtent, {
-            size: this.map.getSize(),
-            padding: [50, 50, 50, 50],
-            duration: 1000
-        });
+        this.goToFeature(this.currentPositionExtent);
 
         const feature = new Feature(new Point([this.coords.longitude, this.coords.latitude]));
         feature.setStyle(new Style({
@@ -350,77 +527,21 @@ export default class TransitMap {
                 features: [ feature ]
             })
         }));
-            
 
         fadeOut(loading);
 
        
         const styles = features.map(feature => {
-            const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
-            const style = new Style({
+            return new Style({
                 stroke: new Stroke({
-                    width: 2,
-                    color
+                    color: feature.get('COLOR'),
+                    width: 2
                 })
             });
-            return style;
         });
 
         features.forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(this.style) : feature.setStyle(styles[i]));
         this.createCurrentLocationStopElements(features);
-    }
-
-    resetMap(currentLocation = false) {
-        Object.values(this.agencyFeatures).flat().forEach(feature => {
-            const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
-            feature.setStyle(new Style({
-                stroke: new Stroke({
-                    width: 2,
-                    color
-                })
-            }));
-        });
-        Object.values(this.layers).flat().forEach(layer => layer.setVisible(true));
-        if (!currentLocation) {
-            this.map.getView().animate({
-                center: [-122.2711639, 37.9743514],
-                zoom: 9.5,
-                duration: 1000
-            });
-        }
-    }
-
-    clearList() {
-        list.nodes().forEach(el => Array.from(el.children).forEach(child => child.remove()));
-    }
-
-    handleBack() {
-        switch (this.currentState) {
-            case 'agencies':
-                break;
-
-            case 'routes':
-            case 'currentLocationStops':
-            case 'mapClick':
-                this.createAgencyElements();
-                break;
-
-            case 'stops':
-                const [stopsAgencyId] = select('.list > li > p').node().dataset['stopData'].split(',');
-                this.createRouteElements(stopsAgencyId);
-                break;
-            
-            case 'stopTimes':
-                const [stopTimesAgencyId, stopTimesRouteId] = select('.list > li > p').node().dataset['stopTimeData'].split(',');
-                this.createStopElements(stopTimesAgencyId, stopTimesRouteId);
-                break;
-            
-                // const [stopTimesAgencyId, stopTimesRouteId, stopTimesStopId] = select('li').node().dataset['agencyId,routeId,stopId'].split(',');
-                // this.createStopElements(stopTimesAgencyId, stopTimesRouteId, stopTimesStopId);
-
-            default:
-                break;
-        }
     }
 
     createAgencyElements() {
@@ -428,118 +549,103 @@ export default class TransitMap {
         this.clearList();
         this.resetMap();
         fadeOut(backButton);
-        
-        const agencies = this.transitAccess.execOnAll(`
-            SELECT * 
-            FROM agency
-        `).sort((a, b) => a['agency_name'].localeCompare(b['agency_name']));
-        agencies.forEach((agency, i) => {
-            const {
-                agency_id: agencyId,
-                agency_name: agencyName
-            } = agency;
+        const agencies = Object.entries(this.agencyMap).sort((a, b) => a[1].localeCompare(b[1]));
+        agencies.forEach(([agencyId, agencyName], i) => {
             select(list.nodes()[Math.floor(i / (agencies.length / 2))])
                 .append('li')
                 .append('p')
                 .style('cursor', 'pointer')
                 .text(agencyName)
                 .on('mouseenter', () => {
-                    Object.values(this.layers).forEach(layer => layer.setVisible(false))
+                    this.getLayers().forEach(layer => layer.setVisible(false))
                     this.setLayerVisible(agencyId, true);
-                    // this.goToLayer(agencyId);
                 })
                 .on('mouseleave', () => {
-                    // this.setLayerVisible(agencyId, false);
-                    Object.values(this.layers).forEach(layer => layer.setVisible(true))
-                    this.map.getView().animate({
-                        center: [-122.2711639, 37.9743514],
-                        zoom: 9.5,
-                        duration: 1000
-                    });
+                    this.getLayers().forEach(layer => layer.setVisible(true))
                 })
                 .on('contextmenu', e => {
                     e.preventDefault();
-                    this.goToLayer(agencyId);
+                    this.goToFeature(this.layers[agencyId].getSource().getExtent());
                 })
-                .on('click', () => this.createRouteElements(agencyId));
+                .on('click', () => {
+                    this.getRTPos(agencyId);
+                    this.currentSelection = { agencyId, routeId: null, stopId: null };
+                    this.createRouteElements(agencyId);
+                });
         });
     }
 
-    createRouteElements(agencyId) {
+    createRouteElements() {
         this.currentState = 'routes';
         this.clearList();
-        this.goToLayer(agencyId);
+        const { agencyId } = this.currentSelection;
+        this.goToFeature(this.layers[agencyId].getSource().getExtent());
         fadeIn(backButton);
-        const routes = this.transitAccess.execOnAgency(agencyId, `
-            SELECT route_id, route_short_name, route_long_name
-            FROM routes
-            ORDER BY route_short_name;
-        `);
-        const features = this.agencyFeatures[`agency_${agencyId}`];
+        const routes = this.routes(agencyId);
+        const routeFeatures = this.getRoutes(agencyId);
         routes.forEach((route, i) => {
-            const {
-                route_id: routeId,
-                route_short_name: routeShortName,
-                route_long_name: routeLongName,
-            } = route;
-            const routeFeatures = features.filter(feature => feature.get('ROUTE_ID') === routeId);
-            
-            const styles = routeFeatures.map(feature => {
-                const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
-                const style = new Style({
-                    stroke: new Stroke({
-                        width: 2,
-                        color
-                    })
-                });
-                feature.setStyle(new Style(null));
-                return style;
-            });
-
-            routeFeatures.forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(new Style(null)) : feature.setStyle(styles[i]));
+            const routeId = route['route_id'];
+            const routeShortName = route['route_short_name'];
+            const routeLongName = route['route_long_name'];
+            const routeColor = route['route_color'];
+            const currentRouteFeatures = routeFeatures.filter(routeFeature => routeFeature.get('route_id') === routeId);
+            const routeExtent = createEmpty();
+            currentRouteFeatures.forEach(feature => extend(routeExtent, feature.getGeometry().getExtent()))
+            const stops = this.getStops(agencyId, routeId);
+            stops.forEach(feature => feature.setStyle(new Style(null)));
             
             select(list.nodes()[routes.length > 30 ? Math.floor(i / (routes.length / 2)) : 0])
                 .append('li')
                 .append('p')
                 .style('cursor', 'pointer')
-                .text(routeShortName)
-                .attr('title', routeLongName)
+                .html(`${routeShortName}<br>${routeLongName}`)
                 .on('mouseenter', () => {
-                    Object.values(this.agencyFeatures).flat().forEach(feature => feature.setStyle(new Style(null)));
-                    routeFeatures.forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(this.style) : feature.setStyle(styles[i]));
+                    routeFeatures.forEach(feature => feature.setStyle(new Style(null)));
+                    stops.forEach(feature => feature.setStyle(feature.setStyle(this.style)));
+                    currentRouteFeatures.forEach(feature => 
+                        feature.setStyle(
+                            new Style({ 
+                                stroke: new Stroke({
+                                    color: feature.get('route_color'),
+                                    width: 2
+                                })
+                            })
+                        )
+                    );
                 })
                 .on('mouseleave', () => {
-                    // this.setLayerVisible(agencyId, false);
-                    routeFeatures.forEach(feature => feature.setStyle(new Style(null)));
-                    Object.values(this.agencyFeatures).flat().forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(new Style(null)) : feature.setStyle(styles[i]));
-                    this.goToLayer(agencyId);
+                    stops.forEach(feature => feature.setStyle(new Style(null)));
+                    routeFeatures.forEach(feature => 
+                        feature.setStyle(
+                            new Style({ 
+                                stroke: new Stroke({
+                                    color: feature.get('route_color'),
+                                    width: 2
+                                })
+                            })
+                        )
+                    );
                 })
                 .on('contextmenu', e => {
                     e.preventDefault();
-                    this.goToLine(agencyId, routeId);
+                    this.goToFeature(routeExtent);
                 })
-                .on('click', () => this.createStopElements(agencyId, routeId))
-                .node().dataset['routeData'] = agencyId;
+                .on('click', () => {
+                    this.currentSelection = { agencyId, routeId, stopId: null };
+                    this.createStopElements(routeExtent);
+                })
         });
     }
 
-    createStopElements(agencyId, routeId) {
+    createStopElements(routeExtent) {
         this.currentState = 'stops';
         fadeIn(backButton);
         this.clearList();
-        this.goToLine(agencyId, routeId);
-        const stops = this.agencyFeatures[`agency_${agencyId}`]
-            .filter(feature => feature.get('ROUTE_ID') === routeId && feature.getGeometry().getType() === 'Point')
-            .map(feature => {
-                feature.setStyle(new Style(null));
-                return {
-                    stopId: feature.get('STOP_ID'),
-                    stopName: feature.get('STOP_NAME'),
-                    feature
-                }
-            })
-            .sort((a, b) => a['stop_sequence'] - b['stop_sequence']).concat(['all']);
-        stops.forEach((stop, i) => {
+        const { agencyId, routeId } = this.currentSelection;
+        this.goToFeature(routeExtent);
+        const stops = this.getStops(agencyId, routeId);
+        stops.forEach(feature => feature.setStyle(new Style(null)));
+        stops.concat('all').forEach((stop, i) => {
             if (stop === 'all') {
                 let flag = true;
                 select(list.nodes()[1])
@@ -548,30 +654,27 @@ export default class TransitMap {
                     .style('cursor', 'default')
                     .text('All Stops')
                     .on('mouseenter', () => stops.slice(0, -1).forEach(stop => stop.feature.setStyle(this.style)))
-                    .on('mouseleave', () => stops.slice(0, -1).forEach(stop => flag ? stop.feature.setStyle(new Style(null)) : null))
+                    .on('mouseleave', () => stops.slice(0, -1).forEach(stop => !flag || stop.feature.setStyle(new Style(null))))
                     .on('click', () => flag = !flag)
                 return;
             }
-            const {
-                stopId,
-                stopName
-            } = stop;
+            const stopId = stop.get('stop_id')
+            const stopName = stop.get('stop_name')
             select(list.nodes()[stops.length > 30 ? Math.floor(i / (stops.length / 2)) : 0])
                 .append('li')
                 .append('p')
                 .style('cursor', 'pointer')
                 .text(stopName)
-                .on('mouseenter', () => stop.feature.setStyle(this.style))
-                .on('mouseleave', () => {
-                    stop.feature.setStyle(new Style(null));
-                    this.goToLine(agencyId, routeId);
-                })
+                .on('mouseenter', () => stop.setStyle(this.style))
+                .on('mouseleave', () => stop.setStyle(new Style(null)))
                 .on('contextmenu', e => {
                     e.preventDefault();
-                    this.goToStop(agencyId, stopId);
+                    this.goToFeature(this.distanceRange(stop.getGeometry().getCoordinates()));
                 })
-                .on('click', () => this.createStopTimeElements(agencyId, routeId, stopId))
-                .node().dataset['stopData'] = [agencyId, routeId].join(',');
+                .on('click', () => {
+                    this.currentSelection = { agencyId, routeId, stopId }
+                    this.createStopTimeElements()
+                })
         });
     }
 
@@ -619,14 +722,30 @@ export default class TransitMap {
                 // })
                 .on('click', () => {
                     features.forEach(feature => feature.get('STOP_ID') !== stopId ? feature.setStyle(new Style(null)) : null);
-                    this.createStopTimeElements(agencyId, routeId, stopId)
-                });
+                    this.createStopTimeElements()
+                })
+                .node().dataset['data'] = [agencyId, routeId].join(',');
         });
     }
 
-    async createStopTimeElements(agencyId, routeId, stopId) {
+    async createStopTimeElements() {
         this.currentState = 'stopTimes';
-        this.goToStop(agencyId, stopId);
+        const { agencyId, routeId, stopId } = this.currentSelection;
+        const stopFeature = this.getStop(agencyId, routeId, stopId);
+        stopFeature.setStyle(this.style);
+        const routeFeatures = this.getRoutes(agencyId).filter(routeFeature => routeFeature.get('route_id') === routeId);
+        routeFeatures.forEach(feature =>
+            feature.setStyle(
+                new Style({
+                    stroke: new Stroke({
+                        color: feature.get('route_color'),
+                        width: 2
+                    })
+                })
+            )
+        );
+        const routeShortName = routeFeatures[0].get('route_short_name');
+        this.goToFeature(this.distanceRange(stopFeature.getGeometry().getCoordinates()));
         this.clearList();
         const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
@@ -636,25 +755,10 @@ export default class TransitMap {
 
             // const date = new Date('2023-04-04 11:45:00 PM');
             const date = new Date();
-
-            let stopRealTimesBuf = await localforage.getItem(`${agencyId}_realtime`);
-            let stopRealTimesTimestamp = await localforage.getItem(`${agencyId}_realtime_timestamp`);
-            if (!(stopRealTimesTimestamp && stopRealTimesBuf && stopRealTimesTimestamp + 300000 > date.getTime())) {
-                stopRealTimesBuf = await fetch(`https://api.511.org/transit/tripupdates?api_key=7cf5660e-215b-489d-87b1-78bb3ee006b7&agency=${agencyId}`).then(res => res.arrayBuffer());
-                await localforage.setItem(`${agencyId}_realtime`, stopRealTimesBuf);
-                stopRealTimesTimestamp = date.getTime();
-                await localforage.setItem(`${agencyId}_realtime_timestamp`, stopRealTimesTimestamp);
-            }
-
-            const routeShortName = this.transitAccess.execOnAgency(agencyId, `
-                SELECT route_short_name
-                FROM routes
-                WHERE route_id = "${routeId}"
-                LIMIT 1
-            `)[0]['route_short_name'];
+            const stopRealTimesBuf = await this.getBuffer(`${agencyId}_realtime_timestamp`, 'tripupdates');
             const startTomorrow1 = (date.getMonth() === 1 && date.getDate() === 28) || ([0, 2, 4, 6, 7, 9, 11].includes(date.getMonth()) && date.getDate() === 31) || ([3, 5, 8, 10].includes(date.getMonth()) && date.getDate() === 30);
             const stopTimesFiltered = this.transitAccess.execOnAgency(agencyId, `
-                SELECT time(stop_times.departure_timestamp, 'unixepoch') departure_time, trip_headsign, stop_headsign, trips.trip_id
+                SELECT time(stop_times.departure_timestamp, 'unixepoch') departure_time, trip_headsign, stop_headsign, trips.trip_id, routes.route_id, routes.route_short_name
                 FROM stop_times 
                 JOIN trips ON trips.trip_id = stop_times.trip_id
                 JOIN stops ON stops.stop_id = stop_times.stop_id
@@ -715,6 +819,7 @@ export default class TransitMap {
             `);
         
             const stopRealTimes = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(stopRealTimesBuf)).entity;
+
             const rightColumn = select(list.nodes()[1]);
 
             rightColumn
@@ -730,6 +835,9 @@ export default class TransitMap {
                 .style('cursor', 'pointer')
                 .text('See stop times for all routes.')
                 .on('click', () => createElements(false));
+
+            const tripInfo = rightColumn
+                .append('li')
                             
             if ((ignoreOtherRoutes ? stopTimesFiltered : stopTimes).length === 0) {
                 select(list.nodes()[0])
@@ -749,23 +857,20 @@ export default class TransitMap {
                     route_id: tripRouteId
                 } = stopTime;
 
-                if (ignoreOtherRoutes && i === 0) {
-                    this.agencyFeatures[`agency_${agencyId}`]
-                        .filter(feature => feature.get('ROUTE_ID') !== routeId && feature.getGeometry().getType() === 'LineString')
-                        .forEach(feature => feature.setStyle(new Style(null)));
-                }
+                if (ignoreOtherRoutes && i === 0) this.getRoutes(agencyId).forEach(feature => feature.get('route_id') === routeId || feature.setStyle(new Style(null)));
 
                 if (!ignoreOtherRoutes) {
-                    const feature = this.agencyFeatures[`agency_${agencyId}`].find(feature => feature.get('ROUTE_ID') === tripRouteId && feature.getGeometry().getType() === 'LineString')
-
-                    const color = feature.get('COLOR').length === 7 ? feature.get('COLOR') : 'rgba(255, 255, 255, 0.7)';
-                    const style = new Style({
-                        stroke: new Stroke({
-                            width: 2,
-                            color
-                        })
-                    });
-                    feature.setStyle(style);
+                    const features = this.getRoute(agencyId, tripRouteId);
+                    features.forEach(feature => 
+                        feature.setStyle(
+                            new Style({
+                                stroke: new Stroke({
+                                    color: feature.get('route_color'),
+                                    width: 2
+                                })
+                            })
+                        )
+                    );
                 }
 
                 const updatedTimeEntity = stopRealTimes.find(entity => entity.id === tripId);
@@ -785,10 +890,27 @@ export default class TransitMap {
                 select(list.nodes()[0])
                     .append('li')
                     .append('p')
-                    // .style('cursor', 'pointer')
+                    .style('cursor', 'pointer')
                     .html(`${time.toLocaleTimeString('en-US')}, in ${timeElapsedHours === 0 ? '' : `${timeElapsedHours} hrs, `}${timeElapsedMinutes < 0 ? 60 + timeElapsedMinutes : timeElapsedMinutes} mins${ignoreOtherRoutes ? '' : `<br>${routeShortName} (${stopHeadsign ? stopHeadsign : tripHeadsign})`}`)
                     // .attr('title', routeLongName)
-                    .node().dataset['stopTimeData'] = [agencyId, routeId, stopId].join(',');
+                    .on('click', () => {
+                        const feature = this.featuresRT[agencyId].find(feature => feature.get('TRIP_ID') === tripId);
+                        if (feature) {
+                            this.goToFeature(this.distanceRange(feature.getGeometry().getCoordinates(), 0.5));
+                        }
+
+                        Array.from(tripInfo.node().children).forEach(child => child.remove());
+                        tripInfo.append('p')
+                            .style('display', 'block')
+                            .append('strong')
+                            .text('TRIP INFO');
+                        tripInfo.append('p')
+                                .text(`Route Name: ${routeShortName}`)
+                        tripInfo.append('p')
+                            .text(`Headsign: ${stopHeadsign ? stopHeadsign : tripHeadsign}`)
+                        
+                        this.currentSelection = { agencyId, routeId, stopId };
+                    })
             });
 
             fadeOut(loading);
@@ -797,25 +919,5 @@ export default class TransitMap {
         createElements(true);
     }
 
-    async getRTPos() {
-        const agencyId = 'SC';
-        const date = new Date();
-        let stopRealPosBuf = await localforage.getItem(`${agencyId}_realtime_positions`);
-        let stopRealPosTimestamp = await localforage.getItem(`${agencyId}_realtime_positions_timestamp`);
-        if (!(stopRealPosTimestamp && stopRealPosBuf && stopRealPosTimestamp + 300000 > date.getTime())) {
-            stopRealPosBuf = await fetch(`https://api.511.org/transit/vehiclepositions?api_key=7cf5660e-215b-489d-87b1-78bb3ee006b7&agency=${agencyId}`).then(res => res.arrayBuffer());
-            await localforage.setItem(`${agencyId}_realtime`, stopRealPosBuf);
-            stopRealPosTimestamp = date.getTime();
-            await localforage.setItem(`${agencyId}_realtime_timestamp`, stopRealPosTimestamp);
-        }
-
-        const stopRealPositions = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(stopRealPosBuf)).entity;
-        const tripVehicles = [];
-        const nonTripVehicles = [];
-        stopRealPositions.forEach(pos => pos.tripUpdate ? tripVehicles.push(pos) : nonTripVehicles.push(pos));
-        console.log(tripVehicles)
-        console.log(nonTripVehicles)
-        // const updatedTimeEntity = stopRealTimes.find(entity => entity.id === tripId);
-        // const updatedTime = updatedTimeEntity ? updatedTimeEntity.tripUpdate.stopTimeUpdate.find(stopTimeUpdate => stopTimeUpdate.stopId === stopId) : null;
-    }
+    
 }

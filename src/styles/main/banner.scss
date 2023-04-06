@@ -1,0 +1,25 @@
+@use '../variables';
+
+.banner {
+    top: 130px;
+    height: 25px;
+    width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    position: relative;
+    // background: variables.$background-color;
+    color: variables.$primary-text;
+}
+
+strong {
+    font-weight: bold;
+}
+
+@keyframes scroll-left {
+    0%   {
+        transform: translateX(100%);
+    }
+    100% {
+        transform: translateX(-100%);
+    }
+}

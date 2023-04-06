@@ -5,18 +5,19 @@ import TransitMap from './scripts/transitMap';
 
 document.querySelector('.continue').addEventListener('click', fadeInMain);
 
-try {
-    new TransitAccess().instance
-        .then(transitAccess => {
-            const transitMap = new TransitMap(transitAccess);
-            transitMap.drawMap();
-        });
-} catch (error) {
-    if (e.toString() === 'Error: both async and sync fetching of the wasm failed') location.reload();
-    console.log(e);
-    
-    fadeOut(loading);
-    fadeIn(error, true);
-}
+(async () => {
+    try {
+        const transitAccess = await new TransitAccess().instance;
+        const transitMap = await new TransitMap(transitAccess).instance;
+        await transitMap.getServiceAlerts();
+    } catch (e) {
+        if (e.toString() === 'Error: both async and sync fetching of the wasm failed') location.reload();
+        console.log(e);
+        
+        fadeOut(loading);
+        fadeIn(error, true);
+    }
+})();
+
 
 
