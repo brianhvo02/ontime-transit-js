@@ -33,7 +33,7 @@ header {
         flex-direction: row;
         align-items: flex-start;
         justify-content: space-between;
-        width: 125px;
+        width: 160px;
     }
 
     .fa-train-subway {
@@ -50,7 +50,7 @@ header {
         transition: 0.5s;
     }
 
-    .fa-circle-arrow-left, .fa-location-dot, .fa-map-location-dot {
+    .fa-circle-arrow-left, .fa-location-dot, .fa-map-location-dot, .fa-circle-info {
         cursor: pointer;
         transition: 0.5s;
     }

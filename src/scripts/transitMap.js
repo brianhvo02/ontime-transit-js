@@ -62,8 +62,6 @@ export default class TransitMap {
             FROM agency
         `).map(({agency_id, agency_name}) => [agency_id, agency_name]));
 
-        window.agencyMap = this.agencyMap
-
         document.querySelector('.fa-pause').addEventListener('click', () => {
             if (this.alertsPaused) {
                 this.animateBanner();
@@ -86,8 +84,6 @@ export default class TransitMap {
             fadeOut(showButton);
             fadeInList();
         });
-
-        
 
         this.instance = this.initialize();
     }
@@ -117,6 +113,7 @@ export default class TransitMap {
                     try {
                         const geojson = await fetch(`https://brianhvo02.github.io/ontime-transit-feeds/geojson/${agency['Id']}/${agency['Id']}.geojson`).then(res => res.json());
                         return [agency['Id'], new VectorLayer({
+                            className: 'agency_' + agency['Id'],
                             source: new VectorSource({
                                 features: new GeoJSON().readFeatures(geojson).map(feature => {
                                     feature.setStyle(
@@ -129,16 +126,6 @@ export default class TransitMap {
                                                 fill: new Fill({
                                                     color: feature.get('route_color') && feature.get('route_color').length === 7 ? feature.get('route_color') : 'rgba(255, 255, 255, 0.8)',
                                                     width: 2
-                                                }),
-                                                image: new Circle({
-                                                    radius: 2,
-                                                    fill: new Fill({
-                                                        color: 'rgba(211, 211, 211, 0.7)'
-                                                    }),
-                                                    stroke: new Stroke({
-                                                        color: 'rgba(211, 211, 211, 0.7)', 
-                                                        width: 2
-                                                    })
                                                 })
                                             }
                                         ) : new Style(null)
@@ -160,7 +147,7 @@ export default class TransitMap {
             loadTilesWhileAnimating: true,
             layers: [
                 tile,
-                ...Object.values(this.layers)
+                ...this.getLayers()
             ],
             view: new View({
                 center: [-122.2711639, 37.9743514],
@@ -195,12 +182,12 @@ export default class TransitMap {
                 } else {
                     const { agencyId, routeId, stopId } = this.currentSelection;
                     if (this.currentState === 'routes') {
-                        this.goToFeature(this.getAgency(agencyId).getSource().getExtent())
+                        this.goToFeature(this.getAgency(agencyId).agencyLayer.getSource().getExtent())
                     } else {
                         if (this.currentState === 'stopTimes') {
                             this.goToFeature(this.distanceRange(this.getStop(agencyId, routeId, stopId).getGeometry().getExtent()));
                         } else {
-                            this.goToFeature(this.getRoute(agencyId, routeId).getGeometry().getExtent());
+                            this.goToFeature(this.getRoute(agencyId, routeId).routeExtent);
                         }
                     }
                 }
@@ -212,14 +199,14 @@ export default class TransitMap {
             
             features.forEach(feature => {
                 const agencyId = feature.get('agency_id');
-                const agencyName = feature.get('agency_name');
+                const agencyName = this.agencyMap[agencyId];
                 const routeId = feature.get('route_id');
                 const tripId = feature.get('trip_id');
                 const stopId = feature.get('stop_id');
                 const stopName = feature.get('stop_name');
                 const routeShortName = feature.get('route_short_name');
                 const routeLongName = feature.get('route_long_name');
-                console.log(agencyId, agencyName, routeId, tripId, stopId, stopName, routeShortName, routeLongName)
+                // console.log(agencyId, agencyName, routeId, tripId, stopId, stopName, routeShortName, routeLongName)
 
                 if (feature.getGeometry().getType() === 'Point') {
                     if (tripId) {
@@ -269,37 +256,91 @@ export default class TransitMap {
     }
 
     getAgencies() {
-        return Object.keys(this.layers);
+        return this.transitAccess.execOnAll(`
+            SELECT *
+            FROM agency
+        `)
+        .sort((a, b) => a['agency_name'].localeCompare(b['agency_name']))
+        .map(agency => { 
+            return { 
+                agencyLayer: this.layers[agency['agency_id']], 
+                ...agency
+            }
+        });
     }
 
     getAgency(agencyId) {
-        return this.layers[agencyId];
+        const agency = this.transitAccess.execOnAll(`
+            SELECT *
+            FROM agency
+            WHERE agency_id = "${agencyId}"
+        `)[0];
+        return { 
+            agencyLayer: this.layers[agencyId], 
+            ...agency
+        }
     }
 
-    getFeatures() {
-        return Object.values(this.layers).map(layer => layer.getSource().getFeatures()).flat();
+    getFeatures(agencyId) {
+        return agencyId ? this.layers[agencyId].getSource().getFeatures() : Object.values(this.layers).map(layer => layer.getSource().getFeatures()).flat();
     }
 
     getRoutes(agencyId) {
-        return this.getFeatures().filter(feature => 
-            feature.getGeometry().getType() === 'LineString'
-                && feature.get('agency_id') === agencyId
-        );
+        const features = this.getFeatures(agencyId);
+        const routeMap = {};
+        const routes = this.transitAccess.execOnAgency(agencyId, `
+            SELECT *
+            FROM routes
+            ORDER BY route_id
+        `);
+        routes.forEach((route, i) => {
+            route.routeFeatures = [];
+            route.stopFeatures = [];
+            route.routeExtent = createEmpty();
+            routeMap[route['route_id']] = i;
+        });
+
+        features.forEach(feature => {
+            const routeId = feature.get('route_id');
+            if (routeId) {
+                extend(routes[routeMap[routeId]].routeExtent, feature.getGeometry().getExtent())
+                routes[routeMap[routeId]].routeFeatures.push(feature);
+            } else {
+                const featureRoutes = feature.get('routes');
+                featureRoutes.forEach(route => routes[routeMap[route['route_id']]].stopFeatures.push(feature));
+            }
+        });
+
+        return {
+            routeMap,
+            routes
+        };
     }
 
     getRoute(agencyId, routeId) {
-        return this.getFeatures().filter(feature => 
-            feature.getGeometry().getType() === 'LineString'
-                && feature.get('agency_id') === agencyId
-                && feature.get('route_id') === routeId
-        );
-    }
+        const features = this.getFeatures(agencyId);
+        const route = this.transitAccess.execOnAgency(agencyId, `
+            SELECT *
+            FROM routes
+            WHERE route_id = "${routeId}"
+            ORDER BY route_id
+        `)[0];
+        route.routeFeatures = [];
+        route.stopFeatures = [];
+        route.routeExtent = createEmpty();
 
-    routes(agencyId) {
-        return this.transitAccess.execOnAgency(agencyId, `
-            SELECT route_id, route_short_name, route_long_name, route_color
-            FROM routes ORDER BY route_id
-        `);
+        features.forEach(feature => {
+            const featureRouteId = feature.get('route_id');
+            if (featureRouteId && featureRouteId === routeId) {
+                extend(route.routeExtent, feature.getGeometry().getExtent())
+                route.routeFeatures.push(feature);
+            } else if (!featureRouteId) {
+                const featureRoutes = feature.get('routes');
+                featureRoutes.forEach(featureRoute => featureRoute['route_id'] !== routeId || route.stopFeatures.push(feature));
+            }
+        });
+
+        return route;
     }
 
     getStops(agencyId, routeId) {
@@ -368,6 +409,7 @@ export default class TransitMap {
             const { longitude, latitude, speed, bearing } = stopRTPosition.vehicle.position;
             const stopId = stopRTPosition.vehicle.stopId;
             const feature = new Feature(new Point([longitude, latitude]));
+            
             feature.setStyle(new Style({
                 image: bearing ? new Icon({
                     src: 'assets/arrow.png',
@@ -387,6 +429,7 @@ export default class TransitMap {
             }));
 
             feature.set('agency_id', agencyId);
+            feature.set('bearing', bearing);
             if (stopId) {
                 feature.set('stop_id', stopId);
                 feature.set('stop_name', this.transitAccess.execOnAgency(agencyId, `SELECT stop_name FROM stops WHERE stop_id = "${stopId}"`)[0]['stop_name']);
@@ -395,7 +438,6 @@ export default class TransitMap {
             feature.set('vehicle_speed', speed);
 
             if (stopRTPosition.vehicle.trip) {
-                console.log(stopRTPosition)
                 const { tripId, routeId } = stopRTPosition.vehicle.trip;
                 feature.set('trip_id', tripId);
                 const { route_short_name, route_long_name } = this.transitAccess.execOnAgency(agencyId, `SELECT route_short_name, route_long_name FROM routes WHERE route_id = "${routeId}"`)[0];
@@ -422,7 +464,7 @@ export default class TransitMap {
         const buffer = await this.getBuffer('service_alerts', 'servicealerts');
         const serviceAlerts = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(new Uint8Array(buffer)).entity;
         const alerts = serviceAlerts.map(({alert}) => 
-            `${agencyMap[alert.informedEntity[0].agencyId] || alert.informedEntity[0].agencyId}: ${alert.headerText.translation[0].text
+            `${this.agencyMap[alert.informedEntity[0].agencyId] || alert.informedEntity[0].agencyId}: ${alert.headerText.translation[0].text
                 .replace(/\s+/g, ' ')}${alert.descriptionText ? ' - ' : ''}${alert.descriptionText.translation[0].text.replace(/\s+/g, ' ')}`
             ).join('\t\t');
 
@@ -498,12 +540,12 @@ export default class TransitMap {
 
         let value = 1;
         this.currentPositionExtent = this.distanceRange([this.coords.longitude, this.coords.latitude])
-        let features = Object.values(this.agencyFeatures).flat().filter(feature => containsXY(this.currentPositionExtent, ...feature.getGeometry().getCoordinates()));
+        let features = this.getFeatures().filter(feature => containsXY(this.currentPositionExtent, ...feature.getGeometry().getCoordinates()));
 
         while (features.length > 60) {
             value -= 0.1;
             this.currentPositionExtent = this.distanceRange([this.coords.longitude, this.coords.latitude], value);
-            features = Object.values(this.agencyFeatures).flat().filter(feature => containsXY(this.currentPositionExtent, ...feature.getGeometry().getCoordinates()));
+            features = this.getFeatures().filter(feature => containsXY(this.currentPositionExtent, ...feature.getGeometry().getCoordinates()));
         }
         
         this.goToFeature(this.currentPositionExtent);
@@ -530,17 +572,12 @@ export default class TransitMap {
 
         fadeOut(loading);
 
-       
-        const styles = features.map(feature => {
-            return new Style({
-                stroke: new Stroke({
-                    color: feature.get('COLOR'),
-                    width: 2
-                })
-            });
-        });
-
-        features.forEach((feature, i) => feature.getGeometry().getType() === 'Point' ? feature.setStyle(this.style) : feature.setStyle(styles[i]));
+        features.forEach(feature => feature.getGeometry().getType() === 'Point' ? feature.setStyle(this.style) : feature.setStyle(new Style({
+            stroke: new Stroke({
+                color: feature.get('COLOR'),
+                width: 2
+            })
+        })));
         this.createCurrentLocationStopElements(features);
     }
 
@@ -549,28 +586,32 @@ export default class TransitMap {
         this.clearList();
         this.resetMap();
         fadeOut(backButton);
-        const agencies = Object.entries(this.agencyMap).sort((a, b) => a[1].localeCompare(b[1]));
-        agencies.forEach(([agencyId, agencyName], i) => {
+        const agencies = this.getAgencies();
+        const layers = this.getLayers();
+        agencies.forEach(({
+            agency_id: agencyId, 
+            agency_name: agencyName, 
+            agencyLayer
+        }, i) => {
             select(list.nodes()[Math.floor(i / (agencies.length / 2))])
                 .append('li')
                 .append('p')
                 .style('cursor', 'pointer')
                 .text(agencyName)
                 .on('mouseenter', () => {
-                    this.getLayers().forEach(layer => layer.setVisible(false))
-                    this.setLayerVisible(agencyId, true);
+                    layers.forEach(layer => layer.setVisible(layer === agencyLayer ? true : false));
                 })
                 .on('mouseleave', () => {
-                    this.getLayers().forEach(layer => layer.setVisible(true))
+                    layers.forEach(layer => layer.setVisible(true));
                 })
                 .on('contextmenu', e => {
                     e.preventDefault();
-                    this.goToFeature(this.layers[agencyId].getSource().getExtent());
+                    this.goToFeature(agencyLayer.getSource().getExtent());
                 })
                 .on('click', () => {
                     this.getRTPos(agencyId);
                     this.currentSelection = { agencyId, routeId: null, stopId: null };
-                    this.createRouteElements(agencyId);
+                    this.createRouteElements();
                 });
         });
     }
@@ -579,20 +620,20 @@ export default class TransitMap {
         this.currentState = 'routes';
         this.clearList();
         const { agencyId } = this.currentSelection;
-        this.goToFeature(this.layers[agencyId].getSource().getExtent());
+        const agency = this.getAgency(agencyId);
+        this.goToFeature(agency.agencyLayer.getSource().getExtent());
         fadeIn(backButton);
-        const routes = this.routes(agencyId);
-        const routeFeatures = this.getRoutes(agencyId);
-        routes.forEach((route, i) => {
-            const routeId = route['route_id'];
-            const routeShortName = route['route_short_name'];
-            const routeLongName = route['route_long_name'];
-            const routeColor = route['route_color'];
-            const currentRouteFeatures = routeFeatures.filter(routeFeature => routeFeature.get('route_id') === routeId);
-            const routeExtent = createEmpty();
-            currentRouteFeatures.forEach(feature => extend(routeExtent, feature.getGeometry().getExtent()))
-            const stops = this.getStops(agencyId, routeId);
-            stops.forEach(feature => feature.setStyle(new Style(null)));
+        const { routeMap, routes } = this.getRoutes(agencyId);
+        routes.forEach(({ 
+            route_id: routeId, 
+            route_short_name: routeShortName, 
+            route_long_name: routeLongName, 
+            route_color: routeColor,
+            routeFeatures,
+            stopFeatures,
+            routeExtent
+        }, i) => {
+            stopFeatures.forEach(feature => feature.setStyle(new Style(null)));
             
             select(list.nodes()[routes.length > 30 ? Math.floor(i / (routes.length / 2)) : 0])
                 .append('li')
@@ -601,12 +642,12 @@ export default class TransitMap {
                 .html(`${routeShortName}<br>${routeLongName}`)
                 .on('mouseenter', () => {
                     routeFeatures.forEach(feature => feature.setStyle(new Style(null)));
-                    stops.forEach(feature => feature.setStyle(feature.setStyle(this.style)));
-                    currentRouteFeatures.forEach(feature => 
+                    stopFeatures.forEach(feature => feature.setStyle(feature.setStyle(this.style)));
+                    routeFeatures.forEach(feature => 
                         feature.setStyle(
                             new Style({ 
                                 stroke: new Stroke({
-                                    color: feature.get('route_color'),
+                                    color: routeColor,
                                     width: 2
                                 })
                             })
@@ -614,12 +655,12 @@ export default class TransitMap {
                     );
                 })
                 .on('mouseleave', () => {
-                    stops.forEach(feature => feature.setStyle(new Style(null)));
+                    stopFeatures.forEach(feature => feature.setStyle(new Style(null)));
                     routeFeatures.forEach(feature => 
                         feature.setStyle(
                             new Style({ 
                                 stroke: new Stroke({
-                                    color: feature.get('route_color'),
+                                    color: routeColor,
                                     width: 2
                                 })
                             })
@@ -644,6 +685,10 @@ export default class TransitMap {
         const { agencyId, routeId } = this.currentSelection;
         this.goToFeature(routeExtent);
         const stops = this.getStops(agencyId, routeId);
+        this.getRoutes(agencyId).routes.forEach(route => route['route_id'] === routeId || route.routeFeatures.forEach(routeFeature => routeFeature.setStyle(new Style({
+            color: routeFeature.get('route_color'),
+            width: 2
+        }))));
         stops.forEach(feature => feature.setStyle(new Style(null)));
         stops.concat('all').forEach((stop, i) => {
             if (stop === 'all') {
@@ -684,34 +729,23 @@ export default class TransitMap {
         this.clearList();
 
         features.sort((a, b) => {
-            const agencyComp = a.get('AGENCY_ID').localeCompare(b.get('AGENCY_ID'));
+            const agencyComp = a.get('agency_name').localeCompare(b.get('agency_name'));
             if (agencyComp !== 0) return agencyComp;
-            return a.get('STOP_NAME').localeCompare(b.get('STOP_NAME'));
+            return a.get('stop_name').localeCompare(b.get('stop_name'));
         }).forEach((feature, i) => {
-            const agencyId = feature.get('AGENCY_ID');
-            const stopId = feature.get('STOP_ID');
-            const stopName = feature.get('STOP_NAME');
-            const routeId = feature.get('ROUTE_ID')
-            const {
-                route_short_name: routeShortName, 
-                route_long_name: routeLongName
-            } = this.transitAccess.execOnAgency(agencyId, `
-                SELECT route_short_name, route_long_name
-                FROM routes
-                WHERE route_id = "${routeId}"
-                LIMIT 1
-            `)[0];
-
-            const agencyName = this.transitAccess.execOnAgency(agencyId, `
-                SELECT agency_name 
-                FROM agency
-            `)[0]['agency_name'];
+            const agencyName = feature.get('agency_name');
+            const agencyId = Object.entries(this.agencyMap).find(([_, possibleAgencyName]) => possibleAgencyName === agencyName)[0];
+            const stopId = feature.get('stop_id');
+            const stopName = feature.get('stop_name');
+            const routeId = feature.get('route_id');
+            const routeShortName = feature.get('route_short_name');
+            const routeLongName = feature.get('route_long_name');
 
             select(list.nodes()[features.length > 30 ? Math.floor(i / (features.length / 2)) : 0])
                 .append('li')
                 .append('p')
                 .style('cursor', 'pointer')
-                .html(`${agencyName}<br>${stopName}<br>${routeShortName} (${routeLongName})`)
+                .html(`${agencyName}<br>${stopName}`)
                 // .on('mouseenter', () => this.goToStop(agencyId, stopId))
                 // .on('mouseleave', () => {
                 //     this.map.getView().fit(this.currentPositionExtent, {
@@ -721,10 +755,10 @@ export default class TransitMap {
                 //     });
                 // })
                 .on('click', () => {
-                    features.forEach(feature => feature.get('STOP_ID') !== stopId ? feature.setStyle(new Style(null)) : null);
+                    features.forEach(feature => feature.get('stop_id') !== stopId ? feature.setStyle(new Style(null)) : null);
+                    this.currentSelection = { agencyId, stopId, routeId: null }
                     this.createStopTimeElements()
                 })
-                .node().dataset['data'] = [agencyId, routeId].join(',');
         });
     }
 
@@ -733,18 +767,22 @@ export default class TransitMap {
         const { agencyId, routeId, stopId } = this.currentSelection;
         const stopFeature = this.getStop(agencyId, routeId, stopId);
         stopFeature.setStyle(this.style);
-        const routeFeatures = this.getRoutes(agencyId).filter(routeFeature => routeFeature.get('route_id') === routeId);
-        routeFeatures.forEach(feature =>
-            feature.setStyle(
-                new Style({
-                    stroke: new Stroke({
-                        color: feature.get('route_color'),
-                        width: 2
+        const { routes } = this.getRoutes(agencyId);
+        const currentRoute = this.getRoute(agencyId, routeId);
+        routes.forEach(route => {
+            route.routeFeatures.forEach(feature =>
+                feature.setStyle(
+                    new Style({
+                        stroke: new Stroke({
+                            color: feature.get('route_color'),
+                            width: 2
+                        })
                     })
-                })
-            )
-        );
-        const routeShortName = routeFeatures[0].get('route_short_name');
+                )
+            );
+        });
+        
+        const routeShortName = currentRoute['route_short_name'];
         this.goToFeature(this.distanceRange(stopFeature.getGeometry().getCoordinates()));
         this.clearList();
         const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -857,11 +895,10 @@ export default class TransitMap {
                     route_id: tripRouteId
                 } = stopTime;
 
-                if (ignoreOtherRoutes && i === 0) this.getRoutes(agencyId).forEach(feature => feature.get('route_id') === routeId || feature.setStyle(new Style(null)));
+                if (ignoreOtherRoutes && i === 0) routes.forEach(({ routeFeatures }) => routeFeatures.forEach(feature => feature.get('route_id') === routeId || feature.setStyle(new Style(null))));
 
                 if (!ignoreOtherRoutes) {
-                    const features = this.getRoute(agencyId, tripRouteId);
-                    features.forEach(feature => 
+                    currentRoute.routeFeatures.forEach(feature => 
                         feature.setStyle(
                             new Style({
                                 stroke: new Stroke({
@@ -894,9 +931,27 @@ export default class TransitMap {
                     .html(`${time.toLocaleTimeString('en-US')}, in ${timeElapsedHours === 0 ? '' : `${timeElapsedHours} hrs, `}${timeElapsedMinutes < 0 ? 60 + timeElapsedMinutes : timeElapsedMinutes} mins${ignoreOtherRoutes ? '' : `<br>${routeShortName} (${stopHeadsign ? stopHeadsign : tripHeadsign})`}`)
                     // .attr('title', routeLongName)
                     .on('click', () => {
-                        const feature = this.featuresRT[agencyId].find(feature => feature.get('TRIP_ID') === tripId);
+                        const feature = this.featuresRT[agencyId].find(feature => feature.get('trip_id') === tripId);
                         if (feature) {
                             this.goToFeature(this.distanceRange(feature.getGeometry().getCoordinates(), 0.5));
+                            const bearing = feature.get('bearing');
+                            feature.setStyle(new Style({
+                                image: bearing ? new Icon({
+                                    src: 'assets/arrow.png',
+                                    color: '#FFC000',
+                                    scale: 0.01,
+                                    rotation: bearing * Math.PI / 180
+                                }) : new Circle({
+                                    radius: 2,
+                                    fill: new Fill({
+                                        color: '#FFC000'
+                                    }),
+                                    stroke: new Stroke({
+                                        color: '#FFC000',
+                                        width: 2
+                                    })
+                                })
+                            }));
                         }
 
                         Array.from(tripInfo.node().children).forEach(child => child.remove());
