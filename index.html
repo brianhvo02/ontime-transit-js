@@ -13,6 +13,7 @@
         <meta name="msapplication-TileColor" content="#da532c">
         <meta name="msapplication-config" content="./assets/browserconfig.xml">
         <meta name="theme-color" content="#ffffff">
+        <script defer src="./assets/fontawesome/js/brands.min.js"></script>
         <script defer src="./assets/fontawesome/js/solid.min.js"></script>
         <script defer src="./assets/fontawesome/js/fontawesome.min.js"></script>
         <link rel="stylesheet" href="./dist/main.css" />
@@ -34,6 +35,7 @@
                     <h2>Bay Area Transit Data Visualizer</h2>
                 </div>
                 <div class="header-right side-buttons">
+                    <a href="https://github.com/brianhvo02/ontime-transit" target="_blank"><i class="fa-brands fa-github"></i></a>
                     <i class="fa-solid fa-pause"></i>
                     <i class="fa-solid fa-location-dot"></i>
                     <i class="fa-solid fa-map-location-dot"></i>
@@ -50,12 +52,12 @@
         </div>
         <div class="loading-container">
             <h1>Loading</h1>
-                <div style="width:100%;height:0;padding-bottom:100%;position:relative;">
-                    <iframe src="https://giphy.com/embed/5n7V4LYrjT8YDrBck1" width="200%" height="200%" style="position:absolute" frameBorder="0" class="giphy-embed" allowFullScreen></iframe>
-                </div>
-                <p>
-                    <a href="https://giphy.com/gifs/5n7V4LYrjT8YDrBck1">via GIPHY</a>
-                </p>
+            <div style="width:100%;height:0;padding-bottom:100%;position:relative;">
+                <iframe src="https://giphy.com/embed/5n7V4LYrjT8YDrBck1" width="200%" height="200%" style="position:absolute" frameBorder="0" class="giphy-embed" allowFullScreen></iframe>
+            </div>
+            <p>
+                <a href="https://giphy.com/gifs/5n7V4LYrjT8YDrBck1">via GIPHY</a>
+            </p>
             </div>
         <div class="error-container">
             <div class="error">
@@ -67,6 +69,17 @@
             <div class="welcome">
                 <h1>Welcome to OnTime Transit!</h1>
                 <p>Thanks for using OnTime Transit, a data visualization project using GTFS feeds from 511 SF Bay.</p>
+                <p>The train logo in the top of the screen is your home button! Use it to come back to the initial agency selection screen.</p>
+                <p>The back button will take you one layer back up (i.e. routes -> agencies, stops -> routes).</p>
+                <p>The Github icon will take you to the Github repository this app is stored in.</p>
+                <p>The pause button will pause the transit alerts banner that scrolls through the screen.</p>
+                <p>The marker button will take you to your current location.</p>
+                <p>The map button will make the top layer disappear so you can explore the map.</p>
+                <p>The info button will show you the welcome screen with instructions.</p>
+                <p>Click on a space of the map with no features and it will take you to an overview of the layer you're in.</p>
+                <p>Click on a feature to bring up the relevant data for that feature.</p>
+                <p>Hover over a link to highlight the feature on the map.</p>
+                <p>Right-click on a link to zoom to that specific feature.</p>
                 <button class="continue">Continue</button>
             </div>
         </div>
