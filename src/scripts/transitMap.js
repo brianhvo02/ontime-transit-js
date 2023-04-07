@@ -641,31 +641,36 @@ export default class TransitMap {
                 .style('cursor', 'pointer')
                 .html(`${routeShortName}<br>${routeLongName}`)
                 .on('mouseenter', () => {
-                    routeFeatures.forEach(feature => feature.setStyle(new Style(null)));
-                    stopFeatures.forEach(feature => feature.setStyle(feature.setStyle(this.style)));
-                    routeFeatures.forEach(feature => 
-                        feature.setStyle(
-                            new Style({ 
-                                stroke: new Stroke({
-                                    color: routeColor,
-                                    width: 2
-                                })
+                    routes.forEach(({routeFeatures}) => routeFeatures.forEach(feature => feature.get('route_id') === routeId ? feature.setStyle(
+                        new Style({ 
+                            stroke: new Stroke({
+                                color: `#${routeColor}`,
+                                width: 2
+                            }),
+                            fill: new Fill({
+                                color: `#${routeColor}`,
+                                width: 2
                             })
-                        )
-                    );
+                        })
+                    ) : feature.setStyle(new Style(null))));
+                    stopFeatures.forEach(feature => feature.setStyle(feature.setStyle(this.style)));
                 })
                 .on('mouseleave', () => {
                     stopFeatures.forEach(feature => feature.setStyle(new Style(null)));
-                    routeFeatures.forEach(feature => 
+                    routes.forEach(({routeFeatures}) => routeFeatures.forEach(feature => 
                         feature.setStyle(
                             new Style({ 
                                 stroke: new Stroke({
-                                    color: routeColor,
+                                    color: feature.get('route_color'),
+                                    width: 2
+                                }),
+                                fill: new Fill({
+                                    color: feature.get('route_color'),
                                     width: 2
                                 })
                             })
                         )
-                    );
+                    ));
                 })
                 .on('contextmenu', e => {
                     e.preventDefault();
@@ -685,10 +690,6 @@ export default class TransitMap {
         const { agencyId, routeId } = this.currentSelection;
         this.goToFeature(routeExtent);
         const stops = this.getStops(agencyId, routeId);
-        this.getRoutes(agencyId).routes.forEach(route => route['route_id'] === routeId || route.routeFeatures.forEach(routeFeature => routeFeature.setStyle(new Style({
-            color: routeFeature.get('route_color'),
-            width: 2
-        }))));
         stops.forEach(feature => feature.setStyle(new Style(null)));
         stops.concat('all').forEach((stop, i) => {
             if (stop === 'all') {
