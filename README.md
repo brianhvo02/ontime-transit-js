@@ -4,7 +4,7 @@
 
 OnTime Transit is a data visualization project to allow users to translate data given by California's [Metropolitan Transportation Commission (MTC)](https://mtc.ca.gov) to a human-readable format in the browser using JavaScript and third-party libraries. Uses the [General Transit Feed Specification (GTFS)](https://developers.google.com/transit) feeds consolidated by 511 SF Bay from all feeds provided transit services.
 
-[Try it now!](https://brianhvo02.github.io/ontime-transit/)
+[Try it now!](https://brianhvo02.github.io/ontime-transit-js/)
 
 ## Overview
 
