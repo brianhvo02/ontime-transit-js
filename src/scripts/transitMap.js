@@ -111,7 +111,7 @@ export default class TransitMap {
             await Promise.all(
                 this.transitAccess.agencies.map(async agency => {
                     try {
-                        const geojson = await fetch(`https://brianhvo02.github.io/ontime-transit-feeds/geojson/${agency['Id']}/${agency['Id']}.geojson`).then(res => res.json());
+                        const geojson = await fetch(`https:/ontime-feeds.brianhuyvo.com/geojson/${agency['Id']}/${agency['Id']}.geojson`).then(res => res.json());
                         return [agency['Id'], new VectorLayer({
                             className: 'agency_' + agency['Id'],
                             source: new VectorSource({
