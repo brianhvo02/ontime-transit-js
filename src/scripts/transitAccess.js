@@ -21,13 +21,13 @@ export default class TransitAccess {
         this.databases = [];
 
         this.agencies = await Promise.all(this.agencies.map(async agency => {
-            const dbChecksumRemote = await fetch(`https://brianhvo02.github.io/ontime-transit-feeds/checksums/${agency['Id']}.checksum`).then(res => res.text());
+            const dbChecksumRemote = await fetch(`https://ontime-feeds.brianhuyvo.com/checksums/${agency['Id']}.checksum`).then(res => res.text());
             const dbChecksumLocal = await localforage.getItem(`${agency['Id']}_checksum`);
             let dbFile;
             if (dbChecksumLocal && dbChecksumLocal === dbChecksumRemote) {
                 dbFile = await localforage.getItem(`${agency['Id']}_db`);
             } else {
-                dbFile = await fetch(`https://brianhvo02.github.io/ontime-transit-feeds/feeds/${agency['Id']}.db`).then(res => res.arrayBuffer());
+                dbFile = await fetch(`https://ontime-feeds.brianhuyvo.com/feeds/${agency['Id']}.db`).then(res => res.arrayBuffer());
                 localforage.setItem(`${agency['Id']}_db`, dbFile);
                 localforage.setItem(`${agency['Id']}_checksum`, dbChecksumRemote);
             }
